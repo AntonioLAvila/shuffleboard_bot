@@ -18,9 +18,9 @@ from pydrake.all import (
     RotationMatrix,
     UnitInertia,
     SpatialInertia,
-    Joint
 )
 
+# TODO wtf
 def add_table(
     plant: MultibodyPlant,
     dims: tuple[float, float, float],
@@ -44,7 +44,7 @@ def add_table(
 
     return body, model
 
-# TODO doesnt interact with gravity
+
 def add_puck(
     plant: MultibodyPlant,
     dims: tuple[float, float],
@@ -61,15 +61,10 @@ def add_puck(
 
     body = plant.AddRigidBody('puck_body', model, spatial_inertia)
     shape = Cylinder(*dims)
-    # plant.AddJoint(Joint(
-    #     name='puck_joint',
-    #     frame_on_parent=plant.world_frame(),
-    #     frame_on_child=body.body_frame()
-    # ))
     plant.RegisterVisualGeometry(body, pose, shape, 'puck_visual', color)
     plant.RegisterCollisionGeometry(
         body,
-        RigidTransform(),
+        pose,
         shape,
         "puck_collision",
         CoulombFriction(static_friction=mu_static, dynamic_friction=mu_dynamic)
@@ -85,7 +80,7 @@ def make_system_diagram(
     table_dims=(10.0, 10.0, 0.4),
     puck_mu_static=0.9,
     puck_mu_dynamic=0.5,
-    puck_dims=(0.0559, 0.014),
+    puck_dims=(0.053975, 0.0254),
     puck_mass=0.340,
     puck_pose=RigidTransform(RotationMatrix().MakeXRotation(0.0), [0,0,2.0])
 ) -> tuple[Diagram, MultibodyPlant, ModelInstanceIndex]:
