@@ -18,9 +18,15 @@ from pydrake.all import (
     RotationMatrix,
     UnitInertia,
     SpatialInertia,
+    DiscreteContactApproximation,
+    ContactModel,
+    AddRigidHydroelasticProperties,
+    ProximityProperties,
+    ContactVisualizer,
+    ContactVisualizerParams
 )
 
-# TODO wtf
+
 def add_table(
     plant: MultibodyPlant,
     dims: tuple[float, float, float],
@@ -32,13 +38,18 @@ def add_table(
     body = plant.AddRigidBody('table_body', model)
     shape = Box(*dims)
     pose = RigidTransform([0, 0, -dims[2]/2.0])
+
+    contact_properties = ProximityProperties()
+    contact_properties.AddProperty('material', 'coulomb_friction', CoulombFriction(mu_static, mu_dynamic))
+    AddRigidHydroelasticProperties(0.05, contact_properties)
+
     plant.RegisterVisualGeometry(body, pose, shape, 'table_visual', color)
     plant.RegisterCollisionGeometry(
         body,
         pose,
         shape,
         "table_collision",
-        CoulombFriction(static_friction=mu_static, dynamic_friction=mu_dynamic)
+        contact_properties
     )
     plant.WeldFrames(plant.world_frame(), body.body_frame())
 
@@ -50,7 +61,6 @@ def add_puck(
     dims: tuple[float, float],
     mu_static: float,
     mu_dynamic: float,
-    pose: RigidTransform,
     mass: float,
     color=[0.0, 1.0, 0.0, 1.0]
 ):
@@ -61,13 +71,18 @@ def add_puck(
 
     body = plant.AddRigidBody('puck_body', model, spatial_inertia)
     shape = Cylinder(*dims)
-    plant.RegisterVisualGeometry(body, pose, shape, 'puck_visual', color)
+
+    contact_properties = ProximityProperties()
+    contact_properties.AddProperty('material', 'coulomb_friction', CoulombFriction(mu_static, mu_dynamic))
+    AddRigidHydroelasticProperties(0.05, contact_properties)
+
+    plant.RegisterVisualGeometry(body, RigidTransform(), shape, 'puck_visual', color)
     plant.RegisterCollisionGeometry(
         body,
-        pose,
+        RigidTransform(),
         shape,
         "puck_collision",
-        CoulombFriction(static_friction=mu_static, dynamic_friction=mu_dynamic)
+        contact_properties
     )
 
     return body, model
@@ -75,6 +90,7 @@ def add_puck(
 
 def make_system_diagram(
     meshcat: Meshcat,
+    time_step=1e-4,
     table_mu_static=0.9,
     table_mu_dynamic=0.5,
     table_dims=(10.0, 10.0, 0.4),
@@ -82,14 +98,17 @@ def make_system_diagram(
     puck_mu_dynamic=0.5,
     puck_dims=(0.053975, 0.0254),
     puck_mass=0.340,
-    puck_pose=RigidTransform(RotationMatrix().MakeXRotation(0.0), [0,0,2.0])
+    visualize_contact=True
 ) -> tuple[Diagram, MultibodyPlant, ModelInstanceIndex]:
     builder = DiagramBuilder()
 
     # make plant and scene_graph
-    plant, scene_graph = AddMultibodyPlantSceneGraph(builder, time_step=1e-4)
+    plant, scene_graph = AddMultibodyPlantSceneGraph(builder, time_step=time_step)
     plant: MultibodyPlant = plant
     scene_graph: SceneGraph = scene_graph
+
+    # add meshcat
+    MeshcatVisualizer.AddToBuilder(builder, scene_graph, meshcat)
 
     # add and configure iiwa
     parser = Parser(plant, scene_graph)
@@ -97,14 +116,25 @@ def make_system_diagram(
     plant.WeldFrames(plant.world_frame(), plant.GetFrameByName('iiwa_link_0'))
 
     # add table surface
-    table_body, table_model = add_table(plant, table_dims, table_mu_static, table_mu_dynamic)
+    _, _ = add_table(plant, table_dims, table_mu_static, table_mu_dynamic)
 
     # add puck
-    puck_body, puck_model = add_puck(plant, puck_dims, puck_mu_static, puck_mu_dynamic, puck_pose, puck_mass)
+    _, puck = add_puck(plant, puck_dims, puck_mu_static, puck_mu_dynamic, puck_mass)
 
-    MeshcatVisualizer.AddToBuilder(builder, scene_graph, meshcat)
+    # contact
+    plant.set_discrete_contact_approximation(DiscreteContactApproximation.kSap)
+    plant.set_contact_model(ContactModel.kHydroelasticWithFallback)
 
     plant.Finalize()
+
+    if visualize_contact:
+        ContactVisualizer.AddToBuilder(
+            builder,
+            plant,
+            meshcat,
+            ContactVisualizerParams()
+        )
+
     diagram = builder.Build()
 
     return diagram, plant, iiwa
@@ -117,13 +147,16 @@ class Sim():
         self.iiwa = iiwa
         self.meshcat = meshcat
 
-    def sim_passive(self, q0=np.zeros(7), sim_time=5.0):
+    def sim_passive(self, q0=np.zeros(7), sim_time=5.0, puck_pose=RigidTransform(RotationMatrix().MakeXRotation(0.0), [0.0,0,2.0])):
         diagram_context = self.diagram.CreateDefaultContext()
         plant_context = self.plant.GetMyMutableContextFromRoot(diagram_context)
 
         self.plant.SetPositions(plant_context, self.iiwa, q0)
         
         self.plant.get_actuation_input_port().FixValue(plant_context, q0)
+
+        puck_body = self.plant.GetBodyByName('puck_body')
+        self.plant.SetFreeBodyPose(plant_context, puck_body, puck_pose)
 
         sim = Simulator(diagram, diagram_context)
 
