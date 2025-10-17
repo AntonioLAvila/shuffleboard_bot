@@ -1,10 +1,8 @@
 import numpy as np
 from pydrake.all import (
     AddMultibodyPlantSceneGraph,
-    Diagram,
     DiagramBuilder,
     MeshcatVisualizer,
-    ModelInstanceIndex,
     MultibodyPlant,
     Parser,
     Simulator,
@@ -15,7 +13,6 @@ from pydrake.all import (
     RigidTransform,
     CoulombFriction,
     Cylinder,
-    RotationMatrix,
     UnitInertia,
     SpatialInertia,
     DiscreteContactApproximation,
@@ -23,7 +20,8 @@ from pydrake.all import (
     AddRigidHydroelasticProperties,
     ProximityProperties,
     ContactVisualizer,
-    ContactVisualizerParams
+    ContactVisualizerParams,
+    RollPitchYaw
 )
 
 
@@ -88,92 +86,118 @@ def add_puck(
     return body, model
 
 
-def make_system_diagram(
-    meshcat: Meshcat,
-    time_step=1e-4,
-    table_mu_static=0.9,
-    table_mu_dynamic=0.5,
-    table_dims=(10.0, 10.0, 0.4),
-    puck_mu_static=0.9,
-    puck_mu_dynamic=0.5,
-    puck_dims=(0.053975, 0.0254),
-    puck_mass=0.340,
-    visualize_contact=True
-) -> tuple[Diagram, MultibodyPlant, ModelInstanceIndex]:
-    builder = DiagramBuilder()
+class Env():
+    def __init__(
+        self,
+        meshcat: Meshcat,
+        time_step=1e-4,
+        table_mu_static=0.9,
+        table_mu_dynamic=0.5,
+        table_dims=(10.0, 10.0, 0.4),
+        puck_mu_static=0.9,
+        puck_mu_dynamic=0.5,
+        puck_dims=(0.053975, 0.0254),
+        puck_mass=0.340,
+        visualize_contact=True
+    ):
+        builder = DiagramBuilder()
 
-    # make plant and scene_graph
-    plant, scene_graph = AddMultibodyPlantSceneGraph(builder, time_step=time_step)
-    plant: MultibodyPlant = plant
-    scene_graph: SceneGraph = scene_graph
+        # make plant and scene_graph
+        plant, scene_graph = AddMultibodyPlantSceneGraph(builder, time_step=time_step)
+        self.plant: MultibodyPlant = plant
+        self.scene_graph: SceneGraph = scene_graph
 
-    # add meshcat
-    MeshcatVisualizer.AddToBuilder(builder, scene_graph, meshcat)
+        # add meshcat
+        MeshcatVisualizer.AddToBuilder(builder, self.scene_graph, meshcat)
 
-    # add and configure iiwa
-    parser = Parser(plant, scene_graph)
-    iiwa = parser.AddModelsFromUrl('package://drake_models/iiwa_description/urdf/iiwa14_primitive_collision.urdf')[0]
-    plant.WeldFrames(plant.world_frame(), plant.GetFrameByName('iiwa_link_0'))
+        # add and configure iiwa
+        parser = Parser(plant, scene_graph)
+        self.iiwa = parser.AddModelsFromUrl('package://drake_models/iiwa_description/sdf/iiwa7_with_box_collision.sdf')[0]
+        self.plant.WeldFrames(self.plant.world_frame(), self.plant.GetFrameByName('iiwa_link_0'))
 
-    # add table surface
-    _, _ = add_table(plant, table_dims, table_mu_static, table_mu_dynamic)
+        # add table surface
+        _, self.table = add_table(self.plant, table_dims, table_mu_static, table_mu_dynamic)
 
-    # add puck
-    _, puck = add_puck(plant, puck_dims, puck_mu_static, puck_mu_dynamic, puck_mass)
+        # add puck
+        _, self.puck = add_puck(self.plant, puck_dims, puck_mu_static, puck_mu_dynamic, puck_mass)
 
-    # contact
-    plant.set_discrete_contact_approximation(DiscreteContactApproximation.kSap)
-    plant.set_contact_model(ContactModel.kHydroelasticWithFallback)
+        # add wsg
+        self.gripper = parser.AddModelsFromUrl("package://drake_models/wsg_50_description/sdf/schunk_wsg_50_with_tip.sdf")[0]
+        X_7G = RigidTransform(RollPitchYaw(np.pi / 2.0, 0, 0), [0, 0, 0.09])
+        plant.WeldFrames(plant.GetFrameByName('iiwa_link_7', self.iiwa), self.plant.GetFrameByName('body', self.gripper), X_7G)
 
-    plant.Finalize()
+        # contact
+        self.plant.set_discrete_contact_approximation(DiscreteContactApproximation.kSap)
+        self.plant.set_contact_model(ContactModel.kHydroelasticWithFallback)
 
-    if visualize_contact:
-        ContactVisualizer.AddToBuilder(
-            builder,
-            plant,
-            meshcat,
-            ContactVisualizerParams()
-        )
+        self.plant.Finalize()
 
-    diagram = builder.Build()
+        if visualize_contact:
+            ContactVisualizer.AddToBuilder(
+                builder,
+                self.plant,
+                meshcat,
+                ContactVisualizerParams()
+            )
 
-    return diagram, plant, iiwa
+        self.diagram = builder.Build()
 
 
-class Sim():
-    def __init__(self, diagram: Diagram, plant: MultibodyPlant, iiwa: ModelInstanceIndex, meshcat: Meshcat):
-        self.diagram = diagram
-        self.plant = plant
-        self.iiwa = iiwa
-        self.meshcat = meshcat
+    def dump_info(self):
+        '''Dump detailed information about the system configuration. Authored by chatgpt'''
+        plant = self.plant
 
-    def sim_passive(self, q0=np.zeros(7), sim_time=5.0, puck_pose=RigidTransform(RotationMatrix().MakeXRotation(0.0), [0.0,0,2.0])):
+        print("\n==================== SYSTEM INFORMATION ====================")
+        print(f"Number of model instances: {plant.num_model_instances()}")
+        print(f"Number of bodies:          {plant.num_bodies()}")
+        print(f"Number of joints:          {plant.num_joints()}")
+        print(f"Number of actuators:       {plant.num_actuators()}")
+        print(f"Number of frames:          {plant.num_frames()}")
+        print(f"Contact model:             {plant.get_contact_model().name}")
+        print(f"Time step:                 {plant.time_step()}")
+        print("============================================================\n")
+
+        print("🔗 Joints:")
+        for joint_index in plant.GetJointIndices():
+            j = plant.get_joint(joint_index)
+            parent = j.parent_body().name()
+            child = j.child_body().name()
+            print(f"  - {j.name()} | {parent} → {child} | type: {type(j).__name__}")
+        print()
+
+        print("⚙️ Actuators:")
+        for actuator in plant.GetJointActuatorIndices():
+            act = plant.get_joint_actuator(actuator)
+            print(f"  - {act.name()} | joint: {act.joint().name()}")
+        print()
+
+        print("\n✅ Dump complete.\n")
+
+
+    def sim_passive(self, q0=np.zeros(7), sim_time=5.0, puck_pose=RigidTransform([0,0,2])):
         diagram_context = self.diagram.CreateDefaultContext()
         plant_context = self.plant.GetMyMutableContextFromRoot(diagram_context)
 
         self.plant.SetPositions(plant_context, self.iiwa, q0)
         
-        self.plant.get_actuation_input_port().FixValue(plant_context, q0)
-
         puck_body = self.plant.GetBodyByName('puck_body')
         self.plant.SetFreeBodyPose(plant_context, puck_body, puck_pose)
 
-        sim = Simulator(diagram, diagram_context)
+        sim = Simulator(self.diagram, diagram_context)
 
         sim.set_target_realtime_rate(1.0)
 
         meshcat.StartRecording()
         sim.AdvanceTo(sim_time)
         meshcat.StopRecording()
-        meshcat.PublishRecording()        
-
+        meshcat.PublishRecording()
 
 
 if __name__ == '__main__':
     meshcat: Meshcat = StartMeshcat()
-    diagram, plant, iiwa = make_system_diagram(meshcat)
-    sim = Sim(diagram, plant, iiwa, meshcat)
-    sim.sim_passive()
+    env = Env(meshcat)
+    env.dump_info()
+    env.sim_passive()
 
     while True:
         pass
