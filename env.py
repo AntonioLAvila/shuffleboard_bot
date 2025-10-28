@@ -21,9 +21,19 @@ from pydrake.all import (
     ProximityProperties,
     ContactVisualizer,
     ContactVisualizerParams,
-    RollPitchYaw
+    RollPitchYaw,
+    Sphere,
+    Rgba
 )
-
+from constants import (
+    table_dims,
+    puck_dims,
+    puck_mass,
+    table_mu_dynamic,
+    table_mu_static,
+    puck_mu_dynamic,
+    puck_mu_static
+)
 
 def add_table(
     plant: MultibodyPlant,
@@ -35,7 +45,7 @@ def add_table(
     model = plant.AddModelInstance('table_model')
     body = plant.AddRigidBody('table_body', model)
     shape = Box(*dims)
-    pose = RigidTransform([0, 0, -dims[2]/2.0])
+    pose = RigidTransform([dims[0]/2.0 + 0.2, 0, -dims[2]/2.0])
 
     contact_properties = ProximityProperties()
     contact_properties.AddProperty('material', 'coulomb_friction', CoulombFriction(mu_static, mu_dynamic))
@@ -91,15 +101,9 @@ class Env():
         self,
         meshcat: Meshcat,
         time_step=1e-4,
-        table_mu_static=0.9,
-        table_mu_dynamic=0.5,
-        table_dims=(10.0, 10.0, 0.4),
-        puck_mu_static=0.9,
-        puck_mu_dynamic=0.5,
-        puck_dims=(0.053975, 0.0254),
-        puck_mass=0.340,
         visualize_contact=True
-    ):
+    ):  
+        self.meshcat = meshcat
         builder = DiagramBuilder()
 
         # make plant and scene_graph
@@ -174,7 +178,7 @@ class Env():
         print("\n✅ Dump complete.\n")
 
 
-    def sim_passive(self, q0=np.zeros(7), sim_time=5.0, puck_pose=RigidTransform([0,0,2])):
+    def sim_passive(self, q0=np.zeros(7), sim_time=5.0, puck_pose=RigidTransform([0.5,0,0.01])):
         diagram_context = self.diagram.CreateDefaultContext()
         plant_context = self.plant.GetMyMutableContextFromRoot(diagram_context)
 
@@ -187,6 +191,9 @@ class Env():
 
         sim.set_target_realtime_rate(1.0)
 
+        self.meshcat.SetObject('start', Sphere(0.02), rgba=Rgba(0, 1, 0, 1))
+        self.meshcat.SetTransform('start', RigidTransform([3.5,0.2,0]))
+
         meshcat.StartRecording()
         sim.AdvanceTo(sim_time)
         meshcat.StopRecording()
@@ -197,7 +204,7 @@ if __name__ == '__main__':
     meshcat: Meshcat = StartMeshcat()
     env = Env(meshcat)
     env.dump_info()
-    env.sim_passive()
+    env.sim_passive(q0=[0,0.1,0,-1.2,0,1.6,0])
 
     while True:
         pass
