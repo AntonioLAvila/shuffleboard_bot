@@ -23,7 +23,12 @@ from pydrake.all import (
     ContactVisualizerParams,
     RollPitchYaw,
     Sphere,
-    Rgba
+    Rgba,
+    RigidBody,
+    ModelInstanceIndex,
+    PiecewisePolynomial,
+    TrajectorySource,
+    BasicVector
 )
 from constants import (
     table_dims,
@@ -32,8 +37,10 @@ from constants import (
     table_mu_dynamic,
     table_mu_static,
     puck_mu_dynamic,
-    puck_mu_static
+    puck_mu_static,
+    iiwa_q0
 )
+from controllers import HFPController
 
 def add_table(
     plant: MultibodyPlant,
@@ -41,7 +48,7 @@ def add_table(
     mu_static: float,
     mu_dynamic: float,
     color=[0.7, 0.5, 0.3, 1.0]
-):
+) -> tuple[RigidBody, ModelInstanceIndex]:
     model = plant.AddModelInstance('table_model')
     body = plant.AddRigidBody('table_body', model)
     shape = Box(*dims)
@@ -71,7 +78,7 @@ def add_puck(
     mu_dynamic: float,
     mass: float,
     color=[0.0, 1.0, 0.0, 1.0]
-):
+) -> tuple[RigidBody, ModelInstanceIndex]:
     model = plant.AddModelInstance('puck_model')
 
     innertia = UnitInertia.SolidCylinder(radius=dims[0], length=dims[1], unit_vector=[0,0,1])
@@ -104,15 +111,15 @@ class Env():
         visualize_contact=True
     ):  
         self.meshcat = meshcat
-        builder = DiagramBuilder()
+        self.builder = DiagramBuilder()
 
         # make plant and scene_graph
-        plant, scene_graph = AddMultibodyPlantSceneGraph(builder, time_step=time_step)
+        plant, scene_graph = AddMultibodyPlantSceneGraph(self.builder, time_step=time_step)
         self.plant: MultibodyPlant = plant
         self.scene_graph: SceneGraph = scene_graph
 
         # add meshcat
-        MeshcatVisualizer.AddToBuilder(builder, self.scene_graph, meshcat)
+        MeshcatVisualizer.AddToBuilder(self.builder, self.scene_graph, meshcat)
 
         # add and configure iiwa
         parser = Parser(plant, scene_graph)
@@ -123,7 +130,7 @@ class Env():
         _, self.table = add_table(self.plant, table_dims, table_mu_static, table_mu_dynamic)
 
         # add puck
-        _, self.puck = add_puck(self.plant, puck_dims, puck_mu_static, puck_mu_dynamic, puck_mass)
+        self.puck_body, self.puck = add_puck(self.plant, puck_dims, puck_mu_static, puck_mu_dynamic, puck_mass)
 
         # add wsg
         self.gripper = parser.AddModelsFromUrl("package://drake_models/wsg_50_description/sdf/schunk_wsg_50_with_tip.sdf")[0]
@@ -138,14 +145,11 @@ class Env():
 
         if visualize_contact:
             ContactVisualizer.AddToBuilder(
-                builder,
+                self.builder,
                 self.plant,
                 meshcat,
                 ContactVisualizerParams()
             )
-
-        self.diagram = builder.Build()
-
 
     def dump_info(self):
         '''Dump detailed information about the system configuration. Authored by chatgpt'''
@@ -175,19 +179,64 @@ class Env():
             print(f"  - {act.name()} | joint: {act.joint().name()}")
         print()
 
+        print(self.plant.GetOutputPort('iiwasf'))
+
         print("\n✅ Dump complete.\n")
 
+    def sim_passive(self, sim_time=2.0, puck_pose=RigidTransform([0.5,0,0.01])):
+        diagram = self.builder.Build() # finish the diagram
 
-    def sim_passive(self, q0=np.zeros(7), sim_time=5.0, puck_pose=RigidTransform([0.5,0,0.01])):
-        diagram_context = self.diagram.CreateDefaultContext()
+        diagram_context = diagram.CreateDefaultContext()
         plant_context = self.plant.GetMyMutableContextFromRoot(diagram_context)
 
-        self.plant.SetPositions(plant_context, self.iiwa, q0)
+        self.plant.SetPositions(plant_context, self.iiwa, [0,0.1,0,-1.2,0,1.6,0])
         
         puck_body = self.plant.GetBodyByName('puck_body')
         self.plant.SetFreeBodyPose(plant_context, puck_body, puck_pose)
 
-        sim = Simulator(self.diagram, diagram_context)
+        sim = Simulator(diagram, diagram_context)
+
+        sim.set_target_realtime_rate(1.0)
+
+        self.meshcat.SetObject('start', Sphere(0.02), rgba=Rgba(0, 1, 0, 1))
+        self.meshcat.SetTransform('start', RigidTransform([3.5,0.2,0]))
+
+        meshcat.StartRecording()
+        sim.AdvanceTo(sim_time)
+        meshcat.StopRecording()
+        meshcat.PublishRecording()
+
+    def test(self, sim_time=10.0):
+        # add controller
+        controller = HFPController(self.plant, f_z_des=0.0)
+        self.builder.AddNamedSystem('controller', controller)
+        
+        t_knots = [0.0, 5.0, 10.0]
+        xy_knots = np.array([
+            [0.3, 0.0, 0.0],
+            [0.3, 0.0, 0.0],
+            [0.3, 0.0, 0.0]
+        ]).T
+        traj = PiecewisePolynomial.CubicWithContinuousSecondDerivatives(t_knots, xy_knots)
+        traj_source = TrajectorySource(traj, output_derivative_order=1)
+        self.builder.AddSystem(traj_source)
+
+        self.builder.Connect(traj_source.get_output_port(0), controller.traj_input)
+        self.builder.Connect(self.plant.get_state_output_port(self.iiwa), controller.state_input)
+        self.builder.Connect(controller.output_port, self.plant.get_actuation_input_port(self.iiwa))
+
+        diagram = self.builder.Build()
+
+        # sim
+        diagram_context = diagram.CreateDefaultContext()
+        plant_context = self.plant.GetMyMutableContextFromRoot(diagram_context)
+
+        self.plant.SetPositions(plant_context, self.iiwa, [0,0.1,0,-1.2,0,1.6,0])
+        
+        puck_body = self.plant.GetBodyByName('puck_body')
+        self.plant.SetFreeBodyPose(plant_context, puck_body, RigidTransform([-1, 0, 0]))
+
+        sim = Simulator(diagram, diagram_context)
 
         sim.set_target_realtime_rate(1.0)
 
@@ -203,8 +252,9 @@ class Env():
 if __name__ == '__main__':
     meshcat: Meshcat = StartMeshcat()
     env = Env(meshcat)
-    env.dump_info()
-    env.sim_passive(q0=[0,0.1,0,-1.2,0,1.6,0])
+    # env.dump_info()
+    env.test()
+    # env.sim_passive()
 
     while True:
         pass
