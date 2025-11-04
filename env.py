@@ -206,17 +206,24 @@ class Env():
         meshcat.StopRecording()
         meshcat.PublishRecording()
 
-    def test(self, sim_time=10.0):
+    def test(self, sim_time=15.0):
+        dummy_context = self.plant.CreateDefaultContext()
+        self.plant.SetPositions(dummy_context, self.iiwa, [0,0.1,0,-1.2,0,1.6,0])
+
         # add controller
         controller = HFPController(self.plant, f_z_des=0.0)
         self.builder.AddNamedSystem('controller', controller)
+
+        p_start = self.plant.GetBodyByName('body').EvalPoseInWorld(dummy_context).translation()
+        points = [
+            list(p_start),
+            [0.3, 0.2, 0.5],
+            [0.3, 0, 0.2],
+            [0, 0.2, 0.2]
+        ]
         
-        t_knots = [0.0, 5.0, 10.0]
-        xy_knots = np.array([
-            [0.3, 0.0, 0.0],
-            [0.3, 0.0, 0.0],
-            [0.3, 0.0, 0.0]
-        ]).T
+        t_knots = [0.0, 5.0, 10.0, 15.0]
+        xy_knots = np.array(points).T
         traj = PiecewisePolynomial.CubicWithContinuousSecondDerivatives(t_knots, xy_knots)
         traj_source = TrajectorySource(traj, output_derivative_order=1)
         self.builder.AddSystem(traj_source)
@@ -227,6 +234,10 @@ class Env():
 
         diagram = self.builder.Build()
 
+        for i, point in enumerate(points):
+            self.meshcat.SetObject(f'{i}', Sphere(0.02), rgba=Rgba(0, 1, 0, 1))
+            self.meshcat.SetTransform(f'{i}', RigidTransform(point))
+
         # sim
         diagram_context = diagram.CreateDefaultContext()
         plant_context = self.plant.GetMyMutableContextFromRoot(diagram_context)
@@ -234,14 +245,11 @@ class Env():
         self.plant.SetPositions(plant_context, self.iiwa, [0,0.1,0,-1.2,0,1.6,0])
         
         puck_body = self.plant.GetBodyByName('puck_body')
-        self.plant.SetFreeBodyPose(plant_context, puck_body, RigidTransform([-1, 0, 0]))
+        self.plant.SetFreeBodyPose(plant_context, puck_body, RigidTransform([3, 0, 0.2]))
 
         sim = Simulator(diagram, diagram_context)
 
         sim.set_target_realtime_rate(1.0)
-
-        self.meshcat.SetObject('start', Sphere(0.02), rgba=Rgba(0, 1, 0, 1))
-        self.meshcat.SetTransform('start', RigidTransform([3.5,0.2,0]))
 
         meshcat.StartRecording()
         sim.AdvanceTo(sim_time)
