@@ -28,7 +28,7 @@ from pydrake.all import (
     ModelInstanceIndex,
     PiecewisePolynomial,
     TrajectorySource,
-    BasicVector
+    ConstantVectorSource
 )
 from constants import (
     table_dims,
@@ -208,41 +208,50 @@ class Env():
 
     def test(self, sim_time=15.0):
         dummy_context = self.plant.CreateDefaultContext()
-        self.plant.SetPositions(dummy_context, self.iiwa, [0,0.1,0,-1.2,0,1.6,0])
+        self.plant.SetPositions(dummy_context, self.iiwa, iiwa_q0)
 
         # add controller
         controller = HFPController(self.plant, f_z_des=0.0)
         self.builder.AddNamedSystem('controller', controller)
 
-        p_start = self.plant.GetBodyByName('body').EvalPoseInWorld(dummy_context).translation()
-        points = [
-            list(p_start),
-            [0.3, 0.2, 0.5],
-            [0.3, 0, 0.2],
-            [0, 0.2, 0.2]
-        ]
-        
-        t_knots = [0.0, 5.0, 10.0, 15.0]
-        xy_knots = np.array(points).T
-        traj = PiecewisePolynomial.CubicWithContinuousSecondDerivatives(t_knots, xy_knots)
-        traj_source = TrajectorySource(traj, output_derivative_order=1)
-        self.builder.AddSystem(traj_source)
+        # trajectroy tracking test NOTE for these tests make sure the
+        # selection matrices are set to position only
+        # p_start = self.plant.GetBodyByName('body').EvalPoseInWorld(dummy_context).translation()
+        # points = [
+        #     list(p_start),
+        #     [0.3, 0.2, 0.5],
+        #     [0.3, 0, 0.2],
+        #     [0, 0.2, 0.2]
+        # ]
+        # t_knots = [0.0, 5.0, 10.0, 15.0]
+        # xy_knots = np.array(points).T
+        # traj = PiecewisePolynomial.CubicWithContinuousSecondDerivatives(t_knots, xy_knots)
+        # traj_source = TrajectorySource(traj, output_derivative_order=1)
+        # self.builder.AddSystem(traj_source)
+        # self.builder.Connect(traj_source.get_output_port(0), controller.traj_input)
+        # for i, point in enumerate(points):
+        #     self.meshcat.SetObject(f'{i}', Sphere(0.02), rgba=Rgba(0, 1, 0, 1))
+        #     self.meshcat.SetTransform(f'{i}', RigidTransform(point))
 
-        self.builder.Connect(traj_source.get_output_port(0), controller.traj_input)
+        # position test NOTE selection matrices
+        p_stationary = [0.5, 0.2, 0.3, 0, 0, 0]
+        const_source = ConstantVectorSource(p_stationary)
+        self.builder.AddSystem(const_source)
+        self.builder.Connect(const_source.get_output_port(0), controller.traj_input)
+        self.meshcat.SetObject(f'point', Sphere(0.02), rgba=Rgba(0, 1, 0, 1))
+        self.meshcat.SetTransform(f'point', RigidTransform(p_stationary[:3]))
+
+        # connect iiwa to controller
         self.builder.Connect(self.plant.get_state_output_port(self.iiwa), controller.state_input)
         self.builder.Connect(controller.output_port, self.plant.get_actuation_input_port(self.iiwa))
 
+        # sim
         diagram = self.builder.Build()
 
-        for i, point in enumerate(points):
-            self.meshcat.SetObject(f'{i}', Sphere(0.02), rgba=Rgba(0, 1, 0, 1))
-            self.meshcat.SetTransform(f'{i}', RigidTransform(point))
-
-        # sim
         diagram_context = diagram.CreateDefaultContext()
         plant_context = self.plant.GetMyMutableContextFromRoot(diagram_context)
 
-        self.plant.SetPositions(plant_context, self.iiwa, [0,0.1,0,-1.2,0,1.6,0])
+        self.plant.SetPositions(plant_context, self.iiwa, iiwa_q0)
         
         puck_body = self.plant.GetBodyByName('puck_body')
         self.plant.SetFreeBodyPose(plant_context, puck_body, RigidTransform([3, 0, 0.2]))

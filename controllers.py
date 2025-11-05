@@ -19,20 +19,22 @@ class HFPController(LeafSystem):
         self.F_des = np.array([0, 0, 0, 0, 0, f_z_des])
         self.iiwa = plant.GetModelInstanceByName('iiwa7')
         self.gripper_body = plant.GetBodyByName('body')
-        self.world_frame = plant.world_frame()
         self.plant = plant
         self.plant_context = self.plant.CreateDefaultContext()
-        self.S_pos = np.diag([0,0,0,1,1,1])
+        self.S_pos = np.diag([1,1,0,1,1,1])
         self.S_force = np.diag([0,0,0,0,0,0])
 
         all_v = np.arange(self.plant.num_velocities())
         self.iiwa_indices = self.plant.GetVelocitiesFromArray(self.iiwa, all_v).astype(int)
 
-        self.Kp = 50
-        self.Kd = 40
+        self.Kp = 100
+        self.Kd = 60
 
-        self.Kp_null = 30
-        self.Kd_null = 30
+        self.Kp_tau = 100
+        self.Kd_tau = 30
+
+        self.Kp_null = 100
+        self.Kd_null = 60
 
         self.state_input = self.DeclareVectorInputPort('state', 14)
         self.traj_input = self.DeclareVectorInputPort('traj_input', 6)
@@ -54,8 +56,8 @@ class HFPController(LeafSystem):
             JacobianWrtVariable.kQDot,
             self.gripper_body.body_frame(),
             [0,0,0],
-            self.world_frame,
-            self.world_frame
+            self.plant.world_frame(),
+            self.plant.world_frame()
         )[:, self.iiwa_indices]
 
         # Calc gravity at EE
@@ -65,12 +67,16 @@ class HFPController(LeafSystem):
         F_g = M_E @ J @ inv(M) @ tau_g
 
         # Get current p, pdot
-        p_WG = self.gripper_body.EvalPoseInWorld(self.plant_context).translation()
-        v_WG = self.gripper_body.EvalSpatialVelocityInWorld(self.plant_context).translational()
+        X_WG = self.gripper_body.EvalPoseInWorld(self.plant_context)
+        V_WG = self.gripper_body.EvalSpatialVelocityInWorld(self.plant_context)
+
+        p_WG, R_WG = X_WG.translation(), X_WG.rotation()
+        v_WG, w_WG = V_WG.translational(), V_WG.rotational()
 
         # Calc input force at EE
         f_pv = self.Kp*(path_p - p_WG) + self.Kd*(path_pdot - v_WG)
-        F_pv = np.concatenate((np.zeros(3), f_pv))
+        tau_pv = -self.Kd_tau*w_WG # TODO these two lines are temporary eventually change to either
+        F_pv = np.concatenate((tau_pv, f_pv)) # TODO keeping upright or tracking
         F_u = (self.S_pos @ F_pv) + (self.S_force @ self.F_des) - F_g
         
         # Calc torque with null space terms
