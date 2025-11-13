@@ -30,7 +30,8 @@ from pydrake.all import (
     TrajectorySource,
     ConstantVectorSource,
     AddFrameTriadIllustration,
-    RotationMatrix
+    RotationMatrix,
+    SpatialVelocity
 )
 from constants import (
     table_dims,
@@ -240,17 +241,14 @@ class Env():
         diagram_context = diagram.CreateDefaultContext()
         plant_context = self.plant.GetMyMutableContextFromRoot(diagram_context)
         
-        puck_body = self.plant.GetBodyByName('puck_body')
-        self.plant.SetFreeBodyPose(plant_context, puck_body, X_WPuck_init)
-
+        self.plant.SetFreeBodyPose(plant_context, self.puck_body, X_WPuck_init)
+        self.plant.SetFreeBodySpatialVelocity(self.puck_body, SpatialVelocity([0,0,0,1,0,0]), plant_context)
         self.plant.SetPositions(plant_context, self.iiwa, self.q0)
 
         sim = Simulator(diagram, diagram_context)
-
         sim.set_target_realtime_rate(1.0)
-
         meshcat.StartRecording()
-        sim.AdvanceTo(1.0)
+        sim.AdvanceTo(5.0)
         meshcat.StopRecording()
         meshcat.PublishRecording()
 
