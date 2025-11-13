@@ -29,8 +29,8 @@ from pydrake.all import (
     PiecewisePolynomial,
     TrajectorySource,
     ConstantVectorSource,
-    RotationMatrix,
     AddFrameTriadIllustration,
+    RotationMatrix
 )
 from constants import (
     table_dims,
@@ -42,7 +42,8 @@ from constants import (
     puck_mu_static,
     iiwa_q0,
     X_WPuck_init,
-    X_PuckG_init
+    X_PuckG_init,
+    table_x_offset
 )
 from controllers import HFPController, IK
 
@@ -57,7 +58,7 @@ def add_table(
     model = plant.AddModelInstance('table_model')
     body = plant.AddRigidBody('table_body', model)
     shape = Box(*dims)
-    pose = RigidTransform([dims[0]/2.0 + 0.3, 0, -dims[2]/2.0])
+    pose = RigidTransform([dims[0]/2.0 + table_x_offset, 0, -dims[2]/2.0])
 
     contact_properties = ProximityProperties()
     contact_properties.AddProperty('material', 'coulomb_friction', CoulombFriction(mu_static, mu_dynamic))
@@ -156,6 +157,10 @@ class Env():
                 ContactVisualizerParams()
             )
 
+        # calc starting q given X_PuckG_init (in constants)
+        self.q0 = IK(self.plant, X_WPuck_init@X_PuckG_init)
+
+        # Add some visualization things
         AddFrameTriadIllustration(
             scene_graph=self.scene_graph,
             body=self.plant.GetBodyByName('body'),
@@ -166,6 +171,9 @@ class Env():
             body=self.puck_body,
             length=0.1
         )
+        meshcat.SetObject('red_line', Cylinder(0.005, 2), rgba=Rgba(1, 0, 0, 1))
+        R = RotationMatrix.MakeYRotation(np.pi/2) @ RotationMatrix.MakeXRotation(np.pi/2)
+        meshcat.SetTransform('red_line', RigidTransform(R, [table_x_offset+1, 0, 0]))
 
     def test(self, sim_time=15.0):
         dummy_context = self.plant.CreateDefaultContext()
@@ -235,8 +243,7 @@ class Env():
         puck_body = self.plant.GetBodyByName('puck_body')
         self.plant.SetFreeBodyPose(plant_context, puck_body, X_WPuck_init)
 
-        q0 = IK(self.plant, X_WPuck_init@X_PuckG_init)
-        self.plant.SetPositions(plant_context, self.iiwa, q0)
+        self.plant.SetPositions(plant_context, self.iiwa, self.q0)
 
         sim = Simulator(diagram, diagram_context)
 

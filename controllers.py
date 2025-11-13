@@ -100,7 +100,7 @@ def IK(
     plant: MultibodyPlant,
     X_WG_target: RigidTransform,
     tolerance=0.001,
-    theta_bound=1*np.pi/180,
+    theta_bound=np.pi/180,
     n_tries=100
 ):
     world_frame = plant.world_frame()
@@ -138,6 +138,8 @@ def IK(
     raise RuntimeError('IK failed')
 
 
-def make_EE_traj_xy():
+def make_EE_traj_xy(q0, vf):
     trajopt = KinematicTrajectoryOptimization(7, 15)
     prog = trajopt.prog()
+
+    
