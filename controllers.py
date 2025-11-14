@@ -10,9 +10,9 @@ from pydrake.all import (
     RotationMatrix,
     Solve
 )
-from constants import iiwa_q0
+from constants import iiwa_q0, table_x_offset, model_mu, cutoff, gravity
 import numpy as np
-from numpy.linalg import inv, pinv
+from numpy.linalg import inv, pinv, norm
 
 
 class HFPController(LeafSystem):
@@ -20,23 +20,22 @@ class HFPController(LeafSystem):
     Hybrid Force Position Controller
     - Control motion in the xy-plane while exterting a force in the z-direction
     '''
-    def __init__(self, plant: MultibodyPlant, f_z_des: float, S_pos=np.diag([1,1,1,1,1,0]), S_force=np.diag([0,0,0,0,0,1])):
+    def __init__(self, plant: MultibodyPlant, S_pos=np.diag([1,1,1,1,1,0]), S_force=np.diag([0,0,0,0,0,1])):
         '''
         Default selection matrices choose position control in rotation xyz and position xy,
         and force control in z
         '''
         super().__init__()
-        self.F_des = np.array([0, 0, 0, 0, 0, f_z_des])
         self.S_pos = S_pos
         self.S_force = S_force
         self.iiwa = plant.GetModelInstanceByName('iiwa7')
         self.gripper_body = plant.GetBodyByName('body')
         self.plant = plant
         self.plant_context = self.plant.CreateDefaultContext()
-        
         all_v = np.arange(self.plant.num_velocities())
         self.iiwa_indices = self.plant.GetVelocitiesFromArray(self.iiwa, all_v).astype(int)
 
+        # gains
         self.Kp = 100
         self.Kd = 60
 
@@ -46,17 +45,20 @@ class HFPController(LeafSystem):
         self.Kp_null = 100
         self.Kd_null = 60
 
+        # io
         self.state_input = self.DeclareVectorInputPort('state', 14) # input is q, qdot
-        self.traj_input = self.DeclareVectorInputPort('traj_input', 6) # input is EE p, pdot
-        self.output_port = self.DeclareVectorOutputPort('torque', 7, self.calc_torque) # output is torques
+        self.traj_pos_input = self.DeclareVectorInputPort('traj_pos_input', 3) # input is EE p
+        self.traj_vel_input = self.DeclareVectorInputPort('traj_vel_input', 3) # input is EE pdot
+        self.force_input = self.DeclareVectorInputPort('force', 6) # spatial force [tau, f]
+        self.output_port = self.DeclareVectorOutputPort('torque', 7, self.calc_torque) # output is 7 torques
 
     def calc_torque(self, context: Context, output: BasicVector):
         state = self.state_input.Eval(context)
-        pv = self.traj_input.Eval(context)
+        path_p = self.traj_pos_input.Eval(context)
+        path_pdot = self.traj_vel_input.Eval(context)
+        F_des = self.force_input.Eval(context)
         q_meas = state[:7]
         v_meas = state[7:]
-        path_p = pv[:3]
-        path_pdot = pv[3:]
 
         # Calc Jacobian
         self.plant.SetPositions(self.plant_context, self.iiwa, q_meas)
@@ -77,6 +79,7 @@ class HFPController(LeafSystem):
         F_g = M_E @ J @ inv(M) @ tau_g
 
         # Get current p, pdot
+        # NOTE this should be done by CalcRelativeTransform but this is easier
         X_WG = self.gripper_body.EvalPoseInWorld(self.plant_context)
         V_WG = self.gripper_body.EvalSpatialVelocityInWorld(self.plant_context)
 
@@ -85,9 +88,9 @@ class HFPController(LeafSystem):
 
         # Calc input force at EE
         f_pv = self.Kp*(path_p - p_WG) + self.Kd*(path_pdot - v_WG)
-        tau_pv = -self.Kd_tau*w_WG # NOTE this drives rotational position to 0 depending on S_pos
+        tau_pv = -self.Kd_tau*w_WG # NOTE this drives rotational position to not move from starting
         F_pv = np.concatenate((tau_pv, f_pv))
-        F_u = (self.S_pos @ F_pv) + (self.S_force @ self.F_des) - F_g
+        F_u = (self.S_pos @ F_pv) + (self.S_force @ F_des) - F_g
         
         # Calc torque with null space terms
         P = np.eye(7) - pinv(J) @ J
@@ -138,8 +141,24 @@ def IK(
     raise RuntimeError('IK failed')
 
 
-def make_EE_traj_xy(q0, vf):
-    trajopt = KinematicTrajectoryOptimization(7, 15)
-    prog = trajopt.prog()
+# NOTE convention will be that p has no z component. In reality it shouldn't matter,
+# but that' what we're going with.
+def make_EE_traj(p_initial, p_final):
+    '''
+    This should return a trajectory (pos, vel) for the end effector in the xy-plane
+    the z component shouldn't matter so long as you set the selection matrices in
+    the controller correctly.
+    Should also output a force trajectory along the z direction.
+    - path should not cause contact with the puck after table_x_offset + cutoff
+    - should use model_mu to determine trajectory
+    '''
+    # calc p_release
+    p_release = np.array([max(p_initial[0], table_x_offset+cutoff), p_initial[1], 0])
 
-    
+    # calc v_release
+    d = p_final - p_release
+    length = norm(d)
+    v_release =  (d/length) * np.sqrt(2 * model_mu * gravity * length)
+
+    # calc path
+    # constraints are start at p_initial, end at p_release, end with velocity v_release, end with upward z force
