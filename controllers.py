@@ -20,9 +20,9 @@ class HFPController(LeafSystem):
     Hybrid Force Position Controller
     - Control motion in the xy-plane while exterting a force in the z-direction
     '''
-    def __init__(self, plant: MultibodyPlant, f_z_des: float, S_pos=np.diag([1,1,0,1,1,0]), S_force=np.diag([0,0,0,0,0,1])):
+    def __init__(self, plant: MultibodyPlant, f_z_des: float, S_pos=np.diag([1,1,1,1,1,0]), S_force=np.diag([0,0,0,0,0,1])):
         '''
-        Default selection matrices choose position control in rotation xy and position xy,
+        Default selection matrices choose position control in rotation xyz and position xy,
         and force control in z
         '''
         super().__init__()
