@@ -4,15 +4,24 @@ from pydrake.all import (
     Context,
     BasicVector,
     JacobianWrtVariable,
-    KinematicTrajectoryOptimization,
     RigidTransform,
     InverseKinematics,
     RotationMatrix,
-    Solve
+    Solve,
+    PiecewisePolynomial
 )
-from constants import iiwa_q0, table_x_offset, model_mu, cutoff, gravity
+from constants import (
+    iiwa_q0,
+    table_x_offset,
+    model_mu,
+    cutoff,
+    gravity,
+    dt,
+    press_force_mag
+)
 import numpy as np
 from numpy.linalg import inv, pinv, norm
+import matplotlib.pyplot as plt
 
 
 class HFPController(LeafSystem):
@@ -47,18 +56,21 @@ class HFPController(LeafSystem):
 
         # io
         self.state_input = self.DeclareVectorInputPort('state', 14) # input is q, qdot
-        self.traj_pos_input = self.DeclareVectorInputPort('traj_pos_input', 3) # input is EE p
-        self.traj_vel_input = self.DeclareVectorInputPort('traj_vel_input', 3) # input is EE pdot
-        self.force_input = self.DeclareVectorInputPort('force', 6) # spatial force [tau, f]
+        self.traj_pos_input = self.DeclareVectorInputPort('traj_pos_input', 2) # input is EE p_xy
+        self.traj_vel_input = self.DeclareVectorInputPort('traj_vel_input', 2) # input is EE pdot_xy
+        self.force_input = self.DeclareVectorInputPort('f_z', 1) # force in the z direction
         self.output_port = self.DeclareVectorOutputPort('torque', 7, self.calc_torque) # output is 7 torques
 
     def calc_torque(self, context: Context, output: BasicVector):
         state = self.state_input.Eval(context)
         path_p = self.traj_pos_input.Eval(context)
         path_pdot = self.traj_vel_input.Eval(context)
-        F_des = self.force_input.Eval(context)
+        f_z = self.force_input.Eval(context)
         q_meas = state[:7]
         v_meas = state[7:]
+        path_p = np.concatenate([path_p, [0]])
+        path_pdot = np.concatenate([path_pdot, [0]])
+        F_des = np.concatenate(np.zeros(5), f_z)
 
         # Calc Jacobian
         self.plant.SetPositions(self.plant_context, self.iiwa, q_meas)
@@ -141,9 +153,9 @@ def IK(
     raise RuntimeError('IK failed')
 
 
-# NOTE convention will be that p has no z component. In reality it shouldn't matter,
-# but that' what we're going with.
-def make_EE_traj(p_initial, p_final):
+# NOTE inputs are only in xy-plane
+# TODO make the force trajectory and return it along with this one
+def make_EE_traj(p_initial: np.ndarray, p_final: np.ndarray) -> PiecewisePolynomial:
     '''
     This should return a trajectory (pos, vel) for the end effector in the xy-plane
     the z component shouldn't matter so long as you set the selection matrices in
@@ -153,7 +165,7 @@ def make_EE_traj(p_initial, p_final):
     - should use model_mu to determine trajectory
     '''
     # calc p_release
-    p_release = np.array([max(p_initial[0], table_x_offset+cutoff), p_initial[1], 0])
+    p_release = np.array([max(p_initial[0], table_x_offset+cutoff), p_initial[1]])
 
     # calc v_release
     d = p_final - p_release
@@ -161,4 +173,50 @@ def make_EE_traj(p_initial, p_final):
     v_release =  (d/length) * np.sqrt(2 * model_mu * gravity * length)
 
     # calc path
-    # constraints are start at p_initial, end at p_release, end with velocity v_release, end with upward z force
+    T = 3.0 # seconds
+    traj = PiecewisePolynomial.CubicWithContinuousSecondDerivatives(
+        breaks=[0.0, T],
+        samples=[p_initial.reshape(2,1), p_release.reshape(2,1)],
+        sample_dot_at_start=np.zeros((2,1)),
+        sample_dot_at_end=v_release.reshape(2,1)
+    )
+    return traj
+
+
+
+if __name__ == "__main__":
+    p_initial = np.array([0.4, 0.0])
+    p_final = np.array([3.0, 0.5])
+    traj = make_EE_traj(p_initial, p_final)
+
+    T = traj.end_time()
+    ts = np.linspace(0.0, T, 200)
+
+    # Evaluate position & velocity
+    pos = np.array([traj.value(t).flatten() for t in ts])
+    vel = np.array([traj.derivative(1).value(t).flatten() for t in ts])
+
+    # ---- Plot XY Trajectory ----
+    plt.figure()
+    plt.plot(pos[:, 0], pos[:, 1], label="EE path")
+    plt.scatter(p_initial[0], p_initial[1], color="green", label="Start")
+    plt.scatter(pos[-1, 0], pos[-1, 1], color="red", label="Release")
+    plt.title("End Effector XY Trajectory")
+    plt.xlabel("X (m)")
+    plt.ylabel("Y (m)")
+    plt.axis("equal")
+    plt.grid(True)
+    plt.legend()
+
+    # ---- Plot Velocity vs Time ----
+    plt.figure()
+    plt.plot(ts, vel[:, 0], label="vx")
+    plt.plot(ts, vel[:, 1], label="vy")
+    plt.plot(ts, np.linalg.norm(vel, axis=1), linestyle="--", label="|v|")
+    plt.title("End Effector Velocity")
+    plt.xlabel("Time (s)")
+    plt.ylabel("Velocity (m/s)")
+    plt.grid(True)
+    plt.legend()
+
+    plt.show()

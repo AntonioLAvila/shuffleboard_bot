@@ -26,9 +26,6 @@ from pydrake.all import (
     Rgba,
     RigidBody,
     ModelInstanceIndex,
-    PiecewisePolynomial,
-    TrajectorySource,
-    ConstantVectorSource,
     AddFrameTriadIllustration,
     RotationMatrix,
     SpatialVelocity
@@ -45,7 +42,8 @@ from constants import (
     X_WPuck_init,
     X_PuckG_init,
     table_x_offset,
-    cutoff
+    cutoff,
+    dt
 )
 from controllers import HFPController, IK
 
@@ -115,8 +113,8 @@ class Env():
     def __init__(
         self,
         meshcat: Meshcat,
-        time_step=1e-4,
-        visualize_contact=True
+        time_step=dt,
+        debug_visualize=True
     ):  
         self.meshcat = meshcat
         self.builder = DiagramBuilder()
@@ -151,31 +149,30 @@ class Env():
 
         self.plant.Finalize()
 
-        if visualize_contact:
+        # Add some visualization things
+        if debug_visualize:
             ContactVisualizer.AddToBuilder(
                 self.builder,
                 self.plant,
                 meshcat,
                 ContactVisualizerParams()
             )
+            AddFrameTriadIllustration(
+                scene_graph=self.scene_graph,
+                body=self.plant.GetBodyByName('body'),
+                length=0.1
+            )
+            AddFrameTriadIllustration(
+                scene_graph=self.scene_graph,
+                body=self.puck_body,
+                length=0.1
+            )
+            meshcat.SetObject('red_line', Cylinder(0.005, 2), rgba=Rgba(1, 0, 0, 1))
+            R = RotationMatrix.MakeYRotation(np.pi/2) @ RotationMatrix.MakeXRotation(np.pi/2)
+            meshcat.SetTransform('red_line', RigidTransform(R, [table_x_offset+cutoff, 0, 0]))
 
         # calc starting q given X_PuckG_init (in constants)
         self.q0 = IK(self.plant, X_WPuck_init@X_PuckG_init)
-
-        # Add some visualization things
-        AddFrameTriadIllustration(
-            scene_graph=self.scene_graph,
-            body=self.plant.GetBodyByName('body'),
-            length=0.1
-        )
-        AddFrameTriadIllustration(
-            scene_graph=self.scene_graph,
-            body=self.puck_body,
-            length=0.1
-        )
-        meshcat.SetObject('red_line', Cylinder(0.005, 2), rgba=Rgba(1, 0, 0, 1))
-        R = RotationMatrix.MakeYRotation(np.pi/2) @ RotationMatrix.MakeXRotation(np.pi/2)
-        meshcat.SetTransform('red_line', RigidTransform(R, [table_x_offset+cutoff, 0, 0]))
 
     def test_basic(self):
         diagram = self.builder.Build()
