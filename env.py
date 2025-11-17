@@ -107,6 +107,7 @@ def add_puck(
 
     return body, model
 
+# make sure puck and table hydroelastic, red arrows mean hydroelastic contact
 
 class Env():
     def __init__(
