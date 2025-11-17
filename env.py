@@ -45,8 +45,7 @@ from constants import (
     cutoff,
     dt
 )
-from controllers import HFPController, IK
-
+from controllers import HFPController, IK, make_EE_traj
 
 def add_table(
     plant: MultibodyPlant,
@@ -190,11 +189,29 @@ class Env():
         sim.AdvanceTo(5.0)
         meshcat.StopRecording()
         meshcat.PublishRecording()
+    
+    def run_push(self):
+        diagram = self.builder.Build()
+
+        diagram_context = diagram.CreateDefaultContext()
+        plant_context = self.plant.GetMyMutableContextFromRoot(diagram_context)
+
+        self.plant.SetFreeBodyPose(plant_context, self.puck_body, X_WPuck_init)
+        self.plant.SetFreeBodySpatialVelocity(self.puck_body, SpatialVelocity([0,0,0,0,0,0]), plant_context)
+        self.plant.SetPositions(plant_context, self.iiwa, self.q0)
+
+        sim = Simulator(diagram, diagram_context)
+        sim.set_target_realtime_rate(1.0)
+        meshcat.StartRecording()
+        sim.AdvanceTo(5.0)
+        meshcat.StopRecording()
+        meshcat.PublishRecording()
 
 if __name__ == '__main__':
     meshcat: Meshcat = StartMeshcat()
     env = Env(meshcat)
-    env.test_basic()
+    # env.test_basic()
+    env.run_push()
 
     while True:
         pass

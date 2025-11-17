@@ -180,18 +180,28 @@ def make_EE_traj(p_initial: np.ndarray, p_final: np.ndarray) -> PiecewisePolynom
         sample_dot_at_start=np.zeros((2,1)),
         sample_dot_at_end=v_release.reshape(2,1)
     )
-    return traj
+    breaks = [0.0, T]
+    samples = [
+        np.array([press_force_mag]).reshape(-1, 1), # Shape (1, 1)
+        np.array([0.0]).reshape(-1, 1)             # Shape (1, 1)
+    ]
+    force_traj = PiecewisePolynomial.ZeroOrderHold(breaks, samples
+    )
 
+    return traj, force_traj
 
 
 if __name__ == "__main__":
     p_initial = np.array([0.4, 0.0])
     p_final = np.array([3.0, 0.5])
-    traj = make_EE_traj(p_initial, p_final)
+    traj, f_traj = make_EE_traj(p_initial, p_final)
 
     T = traj.end_time()
     ts = np.linspace(0.0, T, 200)
 
+    # Evaluate force
+    force = np.array([f_traj.value(t).flatten() for t in ts])
+    
     # Evaluate position & velocity
     pos = np.array([traj.value(t).flatten() for t in ts])
     vel = np.array([traj.derivative(1).value(t).flatten() for t in ts])
