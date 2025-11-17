@@ -16,7 +16,6 @@ from constants import (
     model_mu,
     cutoff,
     gravity,
-    dt,
     press_force_mag
 )
 import numpy as np
@@ -45,6 +44,7 @@ class HFPController(LeafSystem):
         self.iiwa_indices = self.plant.GetVelocitiesFromArray(self.iiwa, all_v).astype(int)
 
         # gains
+        # NOTE generaly set kd = 2*sqrt(kp)
         self.Kp = 100
         self.Kd = 60
 

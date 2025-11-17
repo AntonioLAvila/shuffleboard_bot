@@ -14,8 +14,6 @@ table_x_offset = 0.3
 cutoff = 1.0
 gravity = 9.80665
 
-dt = 1e-4
-
 press_force_mag = 5.0
 
 model_mu = (2 * puck_mu_dynamic * table_mu_dynamic) / (puck_mu_dynamic + table_mu_dynamic)

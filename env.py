@@ -18,6 +18,7 @@ from pydrake.all import (
     DiscreteContactApproximation,
     ContactModel,
     AddRigidHydroelasticProperties,
+    AddCompliantHydroelasticProperties,
     ProximityProperties,
     ContactVisualizer,
     ContactVisualizerParams,
@@ -42,17 +43,19 @@ from constants import (
     X_WPuck_init,
     X_PuckG_init,
     table_x_offset,
-    cutoff,
-    dt
+    cutoff
 )
 from controllers import HFPController, IK, make_EE_traj
+
+# TODO what should the hydroelastic modulus be?
 
 def add_table(
     plant: MultibodyPlant,
     dims: tuple[float, float, float],
     mu_static: float,
     mu_dynamic: float,
-    color=[0.7, 0.5, 0.3, 1.0]
+    color=[0.7, 0.5, 0.3, 1.0],
+    contact_type='rigid'
 ) -> tuple[RigidBody, ModelInstanceIndex]:
     model = plant.AddModelInstance('table_model')
     body = plant.AddRigidBody('table_body', model)
@@ -61,7 +64,12 @@ def add_table(
 
     contact_properties = ProximityProperties()
     contact_properties.AddProperty('material', 'coulomb_friction', CoulombFriction(mu_static, mu_dynamic))
-    AddRigidHydroelasticProperties(0.05, contact_properties)
+    if contact_type == 'rigid':
+        AddRigidHydroelasticProperties(0.05, contact_properties)
+    elif contact_type == 'compliant':
+        AddCompliantHydroelasticProperties(0.05, 100000, contact_properties)
+    else:
+        raise RuntimeError(f'Contact type {contact_type} not supported')
 
     plant.RegisterVisualGeometry(body, pose, shape, 'table_visual', color)
     plant.RegisterCollisionGeometry(
@@ -82,7 +90,8 @@ def add_puck(
     mu_static: float,
     mu_dynamic: float,
     mass: float,
-    color=[0.0, 1.0, 0.0, 1.0]
+    color=[0.0, 1.0, 0.0, 1.0],
+    contact_type='rigid'
 ) -> tuple[RigidBody, ModelInstanceIndex]:
     model = plant.AddModelInstance('puck_model')
 
@@ -94,7 +103,12 @@ def add_puck(
 
     contact_properties = ProximityProperties()
     contact_properties.AddProperty('material', 'coulomb_friction', CoulombFriction(mu_static, mu_dynamic))
-    AddRigidHydroelasticProperties(0.05, contact_properties)
+    if contact_type == 'rigid':
+        AddRigidHydroelasticProperties(0.05, contact_properties)
+    elif contact_type == 'compliant':
+        AddCompliantHydroelasticProperties(0.05, 100000, contact_properties)
+    else:
+        raise RuntimeError(f'Contact type {contact_type} not supported')
 
     plant.RegisterVisualGeometry(body, RigidTransform(), shape, 'puck_visual', color)
     plant.RegisterCollisionGeometry(
@@ -107,13 +121,13 @@ def add_puck(
 
     return body, model
 
-# make sure puck and table hydroelastic, red arrows mean hydroelastic contact
-
 class Env():
     def __init__(
         self,
         meshcat: Meshcat,
-        time_step=dt,
+        time_step=1e-4,
+        table_contact_tyype='rigid',
+        puck_contact_type='compliant',
         debug_visualize=True
     ):  
         self.meshcat = meshcat
@@ -133,10 +147,10 @@ class Env():
         self.plant.WeldFrames(self.plant.world_frame(), self.plant.GetFrameByName('iiwa_link_0'))
 
         # add table surface
-        _, self.table = add_table(self.plant, table_dims, table_mu_static, table_mu_dynamic)
+        _, self.table = add_table(self.plant, table_dims, table_mu_static, table_mu_dynamic, contact_type=table_contact_tyype)
 
         # add puck
-        self.puck_body, self.puck = add_puck(self.plant, puck_dims, puck_mu_static, puck_mu_dynamic, puck_mass)
+        self.puck_body, self.puck = add_puck(self.plant, puck_dims, puck_mu_static, puck_mu_dynamic, puck_mass, contact_type=puck_contact_type)
 
         # add wsg
         self.gripper = parser.AddModelsFromUrl("package://drake_models/wsg_50_description/sdf/schunk_wsg_50_with_tip.sdf")[0]
@@ -182,7 +196,7 @@ class Env():
         
         self.plant.SetFreeBodyPose(plant_context, self.puck_body, X_WPuck_init)
         self.plant.SetFreeBodySpatialVelocity(self.puck_body, SpatialVelocity([0,0,0,1,0,0]), plant_context)
-        self.plant.SetPositions(plant_context, self.iiwa, self.q0)
+        self.plant.SetPositions(plant_context, self.iiwa, iiwa_q0)
 
         sim = Simulator(diagram, diagram_context)
         sim.set_target_realtime_rate(1.0)
@@ -211,8 +225,8 @@ class Env():
 if __name__ == '__main__':
     meshcat: Meshcat = StartMeshcat()
     env = Env(meshcat)
-    # env.test_basic()
-    env.run_push()
+    env.test_basic()
+    # env.run_push()
 
     while True:
         pass
