@@ -29,7 +29,9 @@ from pydrake.all import (
     ModelInstanceIndex,
     AddFrameTriadIllustration,
     RotationMatrix,
-    SpatialVelocity
+    SpatialVelocity,
+    TrajectorySource,
+    ConstantVectorSource
 )
 from constants import (
     table_dims,
@@ -186,9 +188,22 @@ class Env():
             meshcat.SetTransform('red_line', RigidTransform(R, [table_x_offset+cutoff, 0, 0]))
 
         # calc starting q given X_PuckG_init (in constants)
+        # TODO doesnt work
         self.q0 = IK(self.plant, X_WPuck_init@X_PuckG_init)
 
-    def test_basic(self):
+        # Keep the fingers shut
+        finger_l = self.plant.GetJointByName("left_finger_sliding_joint", self.gripper)
+        finger_r = self.plant.GetJointByName("right_finger_sliding_joint", self.gripper)
+        finger_l.set_default_positions([0.0])
+        finger_r.set_default_positions([0.0])
+        const_source = ConstantVectorSource([0.0, 0.0])
+        self.builder.AddSystem(const_source)
+        self.builder.Connect(const_source.get_output_port(), self.plant.get_actuation_input_port(self.gripper))
+
+    def test_friction(self):
+        '''
+        Slides the puck on the table by setting an initial velocity 1m/s in x
+        '''
         diagram = self.builder.Build()
 
         diagram_context = diagram.CreateDefaultContext()
@@ -206,6 +221,26 @@ class Env():
         meshcat.PublishRecording()
     
     def run_push(self):
+        # Make controller and make trajectories
+        controller = HFPController(self.plant)
+        EE_spatial_traj, EE_fz_traj = make_EE_traj(X_WPuck_init.translation()[:2], np.array([2, 0.2]), time=2.0)
+        EE_pos_source = TrajectorySource(EE_spatial_traj)
+        EE_vel_source = TrajectorySource(EE_spatial_traj.derivative(1))
+        EE_fz_source = TrajectorySource(EE_fz_traj)
+
+        # Add them to the builder
+        self.builder.AddNamedSystem('hfp_controller', controller)
+        self.builder.AddNamedSystem('ee_pos', EE_pos_source)
+        self.builder.AddNamedSystem('ee_vel', EE_vel_source)
+        self.builder.AddNamedSystem('ee_fz', EE_fz_source)
+
+        # Connect everything
+        self.builder.Connect(self.plant.get_state_output_port(self.iiwa), controller.state_input)
+        self.builder.Connect(EE_pos_source.get_output_port(), controller.traj_pos_input)
+        self.builder.Connect(EE_vel_source.get_output_port(), controller.traj_vel_input)
+        self.builder.Connect(EE_fz_source.get_output_port(), controller.force_input)
+        self.builder.Connect(controller.output_port, self.plant.get_actuation_input_port(self.iiwa))
+
         diagram = self.builder.Build()
 
         diagram_context = diagram.CreateDefaultContext()
@@ -218,15 +253,15 @@ class Env():
         sim = Simulator(diagram, diagram_context)
         sim.set_target_realtime_rate(1.0)
         meshcat.StartRecording()
-        sim.AdvanceTo(5.0)
+        sim.AdvanceTo(10.0)
         meshcat.StopRecording()
         meshcat.PublishRecording()
 
 if __name__ == '__main__':
     meshcat: Meshcat = StartMeshcat()
     env = Env(meshcat)
-    env.test_basic()
-    # env.run_push()
+    # env.test_basic()
+    env.run_push()
 
     while True:
         pass

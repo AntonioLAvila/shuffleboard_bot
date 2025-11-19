@@ -70,7 +70,7 @@ class HFPController(LeafSystem):
         v_meas = state[7:]
         path_p = np.concatenate([path_p, [0]])
         path_pdot = np.concatenate([path_pdot, [0]])
-        F_des = np.concatenate(np.zeros(5), f_z)
+        F_des = np.concatenate([np.zeros(5), f_z])
 
         # Calc Jacobian
         self.plant.SetPositions(self.plant_context, self.iiwa, q_meas)
@@ -155,7 +155,7 @@ def IK(
 
 # NOTE inputs are only in xy-plane
 # TODO make the force trajectory and return it along with this one
-def make_EE_traj(p_initial: np.ndarray, p_final: np.ndarray) -> PiecewisePolynomial:
+def make_EE_traj(p_initial: np.ndarray, p_final: np.ndarray, time=3.0) -> tuple[PiecewisePolynomial, PiecewisePolynomial]:
     '''
     This should return a trajectory (pos, vel) for the end effector in the xy-plane
     the z component shouldn't matter so long as you set the selection matrices in
@@ -173,19 +173,16 @@ def make_EE_traj(p_initial: np.ndarray, p_final: np.ndarray) -> PiecewisePolynom
     v_release =  (d/length) * np.sqrt(2 * model_mu * gravity * length)
 
     # calc path
-    T = 3.0 # seconds
+    breaks = [0.0, time]
     traj = PiecewisePolynomial.CubicWithContinuousSecondDerivatives(
-        breaks=[0.0, T],
+        breaks=breaks,
         samples=[p_initial.reshape(2,1), p_release.reshape(2,1)],
         sample_dot_at_start=np.zeros((2,1)),
         sample_dot_at_end=v_release.reshape(2,1)
     )
-    breaks = [0.0, T]
-    samples = [
-        np.array([press_force_mag]).reshape(-1, 1), # Shape (1, 1)
-        np.array([0.0]).reshape(-1, 1)             # Shape (1, 1)
-    ]
-    force_traj = PiecewisePolynomial.ZeroOrderHold(breaks, samples
+    force_traj = PiecewisePolynomial.ZeroOrderHold(
+        breaks=breaks,
+        samples=[np.array([-press_force_mag]).reshape(-1, 1), np.array([[0.0]])]
     )
 
     return traj, force_traj
