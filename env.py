@@ -22,7 +22,6 @@ from pydrake.all import (
     ProximityProperties,
     ContactVisualizer,
     ContactVisualizerParams,
-    RollPitchYaw,
     Sphere,
     Rgba,
     RigidBody,
@@ -30,8 +29,7 @@ from pydrake.all import (
     AddFrameTriadIllustration,
     RotationMatrix,
     SpatialVelocity,
-    TrajectorySource,
-    ConstantVectorSource
+    TrajectorySource
 )
 from constants import (
     table_dims,
@@ -43,9 +41,13 @@ from constants import (
     puck_mu_static,
     iiwa_q0,
     X_WPuck_init,
-    X_PuckG_init,
+    X_PuckEE_init,
     table_x_offset,
-    cutoff
+    cutoff,
+    ee_dims,
+    ee_mass,
+    ee_mu_dynamic,
+    ee_mu_static
 )
 from controllers import HFPController, IK, make_EE_traj
 
@@ -86,21 +88,23 @@ def add_table(
     return body, model
 
 
-def add_puck(
+def add_cylinder(
     plant: MultibodyPlant,
+    name: str,
     dims: tuple[float, float],
     mu_static: float,
     mu_dynamic: float,
     mass: float,
     color=[0.0, 1.0, 0.0, 1.0],
-    contact_type='rigid'
+    contact_type='rigid',
+    hydroelastic_modulus=10000,
 ) -> tuple[RigidBody, ModelInstanceIndex]:
-    model = plant.AddModelInstance('puck_model')
+    model = plant.AddModelInstance(f'{name}_model')
 
     innertia = UnitInertia.SolidCylinder(radius=dims[0], length=dims[1], unit_vector=[0,0,1])
     spatial_inertia = SpatialInertia(mass=mass, p_PScm_E=[0, 0, 0], G_SP_E=innertia)
 
-    body = plant.AddRigidBody('puck_body', model, spatial_inertia)
+    body = plant.AddRigidBody(f'{name}_body', model, spatial_inertia)
     shape = Cylinder(*dims)
 
     contact_properties = ProximityProperties()
@@ -108,20 +112,21 @@ def add_puck(
     if contact_type == 'rigid':
         AddRigidHydroelasticProperties(0.05, contact_properties)
     elif contact_type == 'compliant':
-        AddCompliantHydroelasticProperties(0.05, 100000, contact_properties)
+        AddCompliantHydroelasticProperties(0.05, hydroelastic_modulus, contact_properties)
     else:
         raise RuntimeError(f'Contact type {contact_type} not supported')
 
-    plant.RegisterVisualGeometry(body, RigidTransform(), shape, 'puck_visual', color)
+    plant.RegisterVisualGeometry(body, RigidTransform(), shape, f'{name}_visual', color)
     plant.RegisterCollisionGeometry(
         body,
         RigidTransform(),
         shape,
-        "puck_collision",
+        f'{name}_collision',
         contact_properties
     )
 
     return body, model
+
 
 class Env():
     def __init__(
@@ -130,6 +135,7 @@ class Env():
         time_step=1e-4,
         table_contact_tyype='rigid',
         puck_contact_type='compliant',
+        ee_contact_type='rigid',
         debug_visualize=True
     ):  
         self.meshcat = meshcat
@@ -152,12 +158,29 @@ class Env():
         _, self.table = add_table(self.plant, table_dims, table_mu_static, table_mu_dynamic, contact_type=table_contact_tyype)
 
         # add puck
-        self.puck_body, self.puck = add_puck(self.plant, puck_dims, puck_mu_static, puck_mu_dynamic, puck_mass, contact_type=puck_contact_type)
+        self.puck_body, self.puck = add_cylinder(
+            self.plant,
+            'puck',
+            puck_dims,
+            puck_mu_static,
+            puck_mu_dynamic,
+            puck_mass,
+            contact_type=puck_contact_type
+        )
 
-        # add wsg
-        self.gripper = parser.AddModelsFromUrl("package://drake_models/wsg_50_description/sdf/schunk_wsg_50_with_tip.sdf")[0]
-        X_7G = RigidTransform(RollPitchYaw(np.pi / 2.0, 0, 0), [0, 0, 0.09])
-        self.plant.WeldFrames(self.plant.GetFrameByName('iiwa_link_7', self.iiwa), self.plant.GetFrameByName('body', self.gripper), X_7G)
+        # add ee
+        self.ee_body, self.ee = add_cylinder(
+            self.plant,
+            'ee',
+            ee_dims,
+            ee_mu_static,
+            ee_mu_dynamic,
+            ee_mass,
+            color=[0.5, 0.5, 0.5, 1.0],
+            contact_type=ee_contact_type
+        )
+        X_7EE = RigidTransform(RotationMatrix.Identity(), [0, 0, ee_dims[1]])
+        self.plant.WeldFrames(self.plant.GetFrameByName('iiwa_link_7', self.iiwa), self.plant.GetFrameByName('ee_body', self.ee), X_7EE)
 
         # contact
         self.plant.set_discrete_contact_approximation(DiscreteContactApproximation.kSap)
@@ -175,7 +198,7 @@ class Env():
             )
             AddFrameTriadIllustration(
                 scene_graph=self.scene_graph,
-                body=self.plant.GetBodyByName('body'),
+                body=self.plant.GetBodyByName('ee_body'),
                 length=0.1
             )
             AddFrameTriadIllustration(
@@ -187,18 +210,8 @@ class Env():
             R = RotationMatrix.MakeYRotation(np.pi/2) @ RotationMatrix.MakeXRotation(np.pi/2)
             meshcat.SetTransform('red_line', RigidTransform(R, [table_x_offset+cutoff, 0, 0]))
 
-        # calc starting q given X_PuckG_init (in constants)
-        # TODO doesnt work
-        self.q0 = IK(self.plant, X_WPuck_init@X_PuckG_init)
-
-        # Keep the fingers shut
-        finger_l = self.plant.GetJointByName("left_finger_sliding_joint", self.gripper)
-        finger_r = self.plant.GetJointByName("right_finger_sliding_joint", self.gripper)
-        finger_l.set_default_positions([0.0])
-        finger_r.set_default_positions([0.0])
-        const_source = ConstantVectorSource([0.0, 0.0])
-        self.builder.AddSystem(const_source)
-        self.builder.Connect(const_source.get_output_port(), self.plant.get_actuation_input_port(self.gripper))
+        # calc starting q given X_PuckEE_init (in constants)
+        self.q0 = IK(self.plant, X_WPuck_init@X_PuckEE_init)
 
     def test_friction(self):
         '''
@@ -253,14 +266,14 @@ class Env():
         sim = Simulator(diagram, diagram_context)
         sim.set_target_realtime_rate(1.0)
         meshcat.StartRecording()
-        sim.AdvanceTo(10.0)
+        sim.AdvanceTo(5.0)
         meshcat.StopRecording()
         meshcat.PublishRecording()
 
 if __name__ == '__main__':
     meshcat: Meshcat = StartMeshcat()
-    env = Env(meshcat)
-    # env.test_basic()
+    env = Env(meshcat, puck_contact_type='rigid')
+    # env.test_friction()
     env.run_push()
 
     while True:

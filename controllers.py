@@ -37,7 +37,7 @@ class HFPController(LeafSystem):
         self.S_pos = S_pos
         self.S_force = S_force
         self.iiwa = plant.GetModelInstanceByName('iiwa7')
-        self.gripper_body = plant.GetBodyByName('body')
+        self.gripper_body = plant.GetBodyByName('ee_body')
         self.plant = plant
         self.plant_context = self.plant.CreateDefaultContext()
         all_v = np.arange(self.plant.num_velocities())
@@ -119,7 +119,7 @@ def IK(
     n_tries=100
 ):
     world_frame = plant.world_frame()
-    gripper_frame = plant.GetFrameByName('body')
+    gripper_frame = plant.GetFrameByName('ee_body')
 
     ik = InverseKinematics(plant)
     prog = ik.prog()
@@ -154,7 +154,6 @@ def IK(
 
 
 # NOTE inputs are only in xy-plane
-# TODO make the force trajectory and return it along with this one
 def make_EE_traj(p_initial: np.ndarray, p_final: np.ndarray, time=3.0) -> tuple[PiecewisePolynomial, PiecewisePolynomial]:
     '''
     This should return a trajectory (pos, vel) for the end effector in the xy-plane
