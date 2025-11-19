@@ -154,6 +154,9 @@ def IK(
 
 
 # NOTE inputs are only in xy-plane
+# TODO figure out the limits of the arm and use those, the arm can't reach 1m from the edge of the table
+# also make sure that the polynomial path for the force is an okay thing to do. The puck should never slip
+# to keep consistent with our assumptions.
 def make_EE_traj(p_initial: np.ndarray, p_final: np.ndarray, time=3.0) -> tuple[PiecewisePolynomial, PiecewisePolynomial]:
     '''
     This should return a trajectory (pos, vel) for the end effector in the xy-plane

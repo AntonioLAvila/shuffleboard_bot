@@ -10,6 +10,7 @@ table_dims = (3.6576, 0.6604, 0.1) # 144" x 26"
 table_mu_static=0.05
 table_mu_dynamic=0.03
 
+# TODO come up with reasonable values
 ee_dims = (0.01, 0.07)
 ee_mass=0.015
 ee_mu_static=0.9
@@ -19,7 +20,7 @@ table_x_offset = 0.3
 cutoff = 1.0
 gravity = 9.80665
 
-press_force_mag = 10.0
+press_force_mag = 10.0 # TODO derive this
 
 model_mu = (2 * puck_mu_dynamic * table_mu_dynamic) / (puck_mu_dynamic + table_mu_dynamic)
 

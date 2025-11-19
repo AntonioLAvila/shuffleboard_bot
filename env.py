@@ -272,7 +272,7 @@ class Env():
 
 if __name__ == '__main__':
     meshcat: Meshcat = StartMeshcat()
-    env = Env(meshcat, puck_contact_type='rigid')
+    env = Env(meshcat)
     # env.test_friction()
     env.run_push()
 
