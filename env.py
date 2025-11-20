@@ -43,7 +43,6 @@ from constants import (
     X_WPuck_init,
     X_PuckEE_init,
     table_x_offset,
-    cutoff,
     ee_dims,
     ee_mass,
     ee_mu_dynamic,
@@ -51,7 +50,6 @@ from constants import (
 )
 from controllers import HFPController, IK, make_EE_traj
 
-# TODO what should the hydroelastic modulus be?
 
 def add_table(
     plant: MultibodyPlant,
@@ -71,7 +69,7 @@ def add_table(
     if contact_type == 'rigid':
         AddRigidHydroelasticProperties(0.05, contact_properties)
     elif contact_type == 'compliant':
-        AddCompliantHydroelasticProperties(0.05, 100000, contact_properties)
+        AddCompliantHydroelasticProperties(0.05, 1e6, contact_properties)
     else:
         raise RuntimeError(f'Contact type {contact_type} not supported')
 
@@ -97,7 +95,7 @@ def add_cylinder(
     mass: float,
     color=[0.0, 1.0, 0.0, 1.0],
     contact_type='rigid',
-    hydroelastic_modulus=10000,
+    hydroelastic_modulus=1e6,
 ) -> tuple[RigidBody, ModelInstanceIndex]:
     model = plant.AddModelInstance(f'{name}_model')
 
@@ -127,7 +125,8 @@ def add_cylinder(
 
     return body, model
 
-
+# TODO make the friction between the puck and the ee higher
+# either new model or fudge friction
 class Env():
     def __init__(
         self,
@@ -206,9 +205,6 @@ class Env():
                 body=self.puck_body,
                 length=0.1
             )
-            meshcat.SetObject('red_line', Cylinder(0.005, 2), rgba=Rgba(1, 0, 0, 1))
-            R = RotationMatrix.MakeYRotation(np.pi/2) @ RotationMatrix.MakeXRotation(np.pi/2)
-            meshcat.SetTransform('red_line', RigidTransform(R, [table_x_offset+cutoff, 0, 0]))
 
         # calc starting q given X_PuckEE_init (in constants)
         self.q0 = IK(self.plant, X_WPuck_init@X_PuckEE_init)
@@ -233,10 +229,31 @@ class Env():
         meshcat.StopRecording()
         meshcat.PublishRecording()
     
+    def test_reach(self):
+        '''
+        change X_WP
+        '''
+        diagram = self.builder.Build()
+
+        diagram_context = diagram.CreateDefaultContext()
+        plant_context = self.plant.GetMyMutableContextFromRoot(diagram_context)
+
+        X_WP = RigidTransform(RotationMatrix.Identity(), [0.38, 0.0, puck_dims[1]/2+1e-3]) # change this
+        q0 = IK(self.plant, X_WP@X_PuckEE_init)
+        self.plant.SetPositions(plant_context, self.iiwa, q0)
+        self.plant.SetFreeBodyPose(plant_context, self.puck_body, X_WP)
+
+        sim = Simulator(diagram, diagram_context)
+        sim.set_target_realtime_rate(1.0)
+        meshcat.StartRecording()
+        sim.AdvanceTo(1.0)
+        meshcat.StopRecording()
+        meshcat.PublishRecording()
+    
     def run_push(self):
         # Make controller and make trajectories
         controller = HFPController(self.plant)
-        EE_spatial_traj, EE_fz_traj = make_EE_traj(X_WPuck_init.translation()[:2], np.array([2, 0.2]), time=2.0)
+        EE_spatial_traj, EE_fz_traj = make_EE_traj(X_WPuck_init.translation()[:2], np.array([2, 0.2]))
         EE_pos_source = TrajectorySource(EE_spatial_traj)
         EE_vel_source = TrajectorySource(EE_spatial_traj.derivative(1))
         EE_fz_source = TrajectorySource(EE_fz_traj)
@@ -266,14 +283,14 @@ class Env():
         sim = Simulator(diagram, diagram_context)
         sim.set_target_realtime_rate(1.0)
         meshcat.StartRecording()
-        sim.AdvanceTo(5.0)
+        sim.AdvanceTo(3.0)
         meshcat.StopRecording()
         meshcat.PublishRecording()
 
 if __name__ == '__main__':
     meshcat: Meshcat = StartMeshcat()
     env = Env(meshcat)
-    # env.test_friction()
+    # env.test_reach()
     env.run_push()
 
     while True:

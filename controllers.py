@@ -12,11 +12,10 @@ from pydrake.all import (
 )
 from constants import (
     iiwa_q0,
-    table_x_offset,
     model_mu,
-    cutoff,
     gravity,
-    press_force_mag
+    press_force_mag,
+    x_limits
 )
 import numpy as np
 from numpy.linalg import inv, pinv, norm
@@ -44,13 +43,15 @@ class HFPController(LeafSystem):
         self.iiwa_indices = self.plant.GetVelocitiesFromArray(self.iiwa, all_v).astype(int)
 
         # gains
-        # NOTE generaly set kd = 2*sqrt(kp)
-        self.Kp = 100
-        self.Kd = 60
+        # generaly set kd = 2*sqrt(kp)
+        # TODO tune
+        self.Kp = 1000
+        self.Kd = 2*np.sqrt(self.Kp)
 
-        self.Kp_tau = 100
-        self.Kd_tau = 30
+        self.Kp_tau = 10000
+        self.Kd_tau = 2*np.sqrt(self.Kp_tau)
 
+        # this ones probably fine?
         self.Kp_null = 100
         self.Kd_null = 60
 
@@ -100,7 +101,7 @@ class HFPController(LeafSystem):
 
         # Calc input force at EE
         f_pv = self.Kp*(path_p - p_WG) + self.Kd*(path_pdot - v_WG)
-        tau_pv = -self.Kd_tau*w_WG # NOTE this drives rotational position to not move from starting
+        tau_pv = -self.Kd_tau*w_WG # this drives rotational position to not move from starting
         F_pv = np.concatenate((tau_pv, f_pv))
         F_u = (self.S_pos @ F_pv) + (self.S_force @ F_des) - F_g
         
@@ -153,21 +154,15 @@ def IK(
     raise RuntimeError('IK failed')
 
 
-# NOTE inputs are only in xy-plane
-# TODO figure out the limits of the arm and use those, the arm can't reach 1m from the edge of the table
-# also make sure that the polynomial path for the force is an okay thing to do. The puck should never slip
-# to keep consistent with our assumptions.
-def make_EE_traj(p_initial: np.ndarray, p_final: np.ndarray, time=3.0) -> tuple[PiecewisePolynomial, PiecewisePolynomial]:
+def make_EE_traj(p_initial: np.ndarray, p_final: np.ndarray, time=0.8) -> tuple[PiecewisePolynomial, PiecewisePolynomial]:
     '''
-    This should return a trajectory (pos, vel) for the end effector in the xy-plane
-    the z component shouldn't matter so long as you set the selection matrices in
-    the controller correctly.
-    Should also output a force trajectory along the z direction.
-    - path should not cause contact with the puck after table_x_offset + cutoff
-    - should use model_mu to determine trajectory
+    Return a trajectory for the end effector in the xy-plane and a force trajectory
+    in the z direction.
+    - The inputs are only in the xy-plane
+    - use model_mu in constants to determine trajectory
     '''
     # calc p_release
-    p_release = np.array([max(p_initial[0], table_x_offset+cutoff), p_initial[1]])
+    p_release = np.array([max(p_initial[0], x_limits[1]), p_initial[1]])
 
     # calc v_release
     d = p_final - p_release
@@ -184,7 +179,7 @@ def make_EE_traj(p_initial: np.ndarray, p_final: np.ndarray, time=3.0) -> tuple[
     )
     force_traj = PiecewisePolynomial.ZeroOrderHold(
         breaks=breaks,
-        samples=[np.array([-press_force_mag]).reshape(-1, 1), np.array([[0.0]])]
+        samples=[np.array([[-press_force_mag]]), np.array([[-press_force_mag]])] # NOTE this
     )
 
     return traj, force_traj
