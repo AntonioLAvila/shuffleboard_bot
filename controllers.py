@@ -45,7 +45,7 @@ class HFPController(LeafSystem):
         # gains
         # generaly set kd = 2*sqrt(kp)
         # TODO tune
-        self.Kp = 1000
+        self.Kp = 100
         self.Kd = 2*np.sqrt(self.Kp)
 
         self.Kp_tau = 10000
@@ -179,7 +179,7 @@ def make_EE_traj(p_initial: np.ndarray, p_final: np.ndarray, time=0.8) -> tuple[
     )
     force_traj = PiecewisePolynomial.ZeroOrderHold(
         breaks=breaks,
-        samples=[np.array([[-press_force_mag]]), np.array([[-press_force_mag]])] # NOTE this
+        samples=[np.array([[-press_force_mag]]), np.array([[0.0]])]
     )
 
     return traj, force_traj
@@ -187,7 +187,7 @@ def make_EE_traj(p_initial: np.ndarray, p_final: np.ndarray, time=0.8) -> tuple[
 
 if __name__ == "__main__":
     p_initial = np.array([0.4, 0.0])
-    p_final = np.array([3.0, 0.5])
+    p_final = np.array([2.0, 0.2])
     traj, f_traj = make_EE_traj(p_initial, p_final)
 
     T = traj.end_time()
@@ -220,6 +220,16 @@ if __name__ == "__main__":
     plt.title("End Effector Velocity")
     plt.xlabel("Time (s)")
     plt.ylabel("Velocity (m/s)")
+    plt.grid(True)
+    plt.legend()
+
+    # ---- Plot Force vs Time ----
+    plt.figure()
+    plt.plot(ts, force[:, 0], label="Fz")
+    plt.plot(ts, np.linalg.norm(force, axis=1), linestyle="--", label="|F|")
+    plt.title("End Effector Force")
+    plt.xlabel("Time (s)")
+    plt.ylabel("Force (N)")
     plt.grid(True)
     plt.legend()
 

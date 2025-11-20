@@ -73,7 +73,7 @@ def add_table(
     if contact_type == 'rigid':
         AddRigidHydroelasticProperties(0.05, contact_properties)
     elif contact_type == 'compliant':
-        AddCompliantHydroelasticProperties(0.05, 1e6, contact_properties)
+        AddCompliantHydroelasticProperties(0.05, 1e7, contact_properties)
     else:
         raise RuntimeError(f'Contact type {contact_type} not supported')
 
@@ -99,7 +99,7 @@ def add_cylinder(
     mass: float,
     color=[0.0, 1.0, 0.0, 1.0],
     contact_type='rigid',
-    hydroelastic_modulus=1e6,
+    hydroelastic_modulus=1e7,
 ) -> tuple[RigidBody, ModelInstanceIndex]:
     model = plant.AddModelInstance(f'{name}_model')
 
@@ -266,9 +266,14 @@ class Env():
         meshcat.PublishRecording()
     
     def run_push(self):
+        # set target
+        target = np.array([2, 0.2])
+        self.meshcat.SetObject('target', Sphere(0.01), rgba=Rgba(0,1,0,1))
+        self.meshcat.SetTransform('target', RigidTransform(np.concatenate([target, [0]])))
+
         # Make controller and make trajectories
         controller = HFPController(self.plant)
-        EE_spatial_traj, EE_fz_traj = make_EE_traj(X_WPuck_init.translation()[:2], np.array([2, 0.2]))
+        EE_spatial_traj, EE_fz_traj = make_EE_traj(X_WPuck_init.translation()[:2], target)
         EE_pos_source = TrajectorySource(EE_spatial_traj)
         EE_vel_source = TrajectorySource(EE_spatial_traj.derivative(1))
         EE_fz_source = TrajectorySource(EE_fz_traj)
@@ -306,8 +311,8 @@ if __name__ == '__main__':
     meshcat: Meshcat = StartMeshcat()
     env = Env(meshcat)
     # env.test_reach()
-    env.run_push()
     # env.test_friction()
+    env.run_push()
 
     while True:
         pass

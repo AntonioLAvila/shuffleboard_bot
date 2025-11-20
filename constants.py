@@ -22,7 +22,7 @@ ee_mu_dynamic = 0.8
 table_x_offset = 0.3
 gravity = 9.80665
 
-press_force_mag = 10.0
+press_force_mag = 35.0
 
 model_mu = (2 * puck_mu_dynamic * table_mu_dynamic) / (puck_mu_dynamic + table_mu_dynamic)
 
@@ -31,7 +31,7 @@ iiwa_q0 = [0,0.1,0,-1.2,0,1.6,0]
 X_WPuck_init = RigidTransform(RotationMatrix.Identity(), [0.38, 0.0, puck_dims[1]/2+1e-3])
 X_PuckEE_init = RigidTransform(
     RotationMatrix.MakeYRotation(np.pi),
-    [0, 0, puck_dims[1]/2 + ee_dims[1]/2 + 1e-3]
+    [0, 0, puck_dims[1]/2 + top_dims[1] + ee_dims[1]/2 + 2e-3]
 )
 
-x_limits = (0.38, 0.7) # meters
+x_limits = (0.38, 0.65) # meters
