@@ -1,19 +1,23 @@
 from pydrake.all import RigidTransform, RotationMatrix
 import numpy as np
 
-puck_dims = (0.05, 0.02)
-puck_mass=0.340
-puck_mu_static=0.04
-puck_mu_dynamic=0.03
-
 table_dims = (3.6576, 0.6604, 0.1) # 144" x 26"
-table_mu_static=0.05
-table_mu_dynamic=0.03
+table_mu_static = 0.05
+table_mu_dynamic = 0.03
+
+puck_dims = (0.05, 0.02)
+puck_mass = 0.340
+puck_mu_static = 0.04
+puck_mu_dynamic = 0.03
+top_mass = 1e-3
+top_mu_static = 0.9
+top_mu_dynamic = 0.8
+top_dims = (0.05, 1e-3)
 
 ee_dims = (0.01, 0.07)
-ee_mass=0.015
-ee_mu_static=0.9
-ee_mu_dynamic=0.9
+ee_mass = 0.015
+ee_mu_static = 0.9
+ee_mu_dynamic = 0.8
 
 table_x_offset = 0.3
 gravity = 9.80665

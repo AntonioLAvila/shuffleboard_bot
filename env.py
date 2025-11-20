@@ -46,7 +46,11 @@ from constants import (
     ee_dims,
     ee_mass,
     ee_mu_dynamic,
-    ee_mu_static
+    ee_mu_static,
+    top_mass,
+    top_mu_static,
+    top_mu_dynamic,
+    top_dims
 )
 from controllers import HFPController, IK, make_EE_traj
 
@@ -125,8 +129,7 @@ def add_cylinder(
 
     return body, model
 
-# TODO make the friction between the puck and the ee higher
-# either new model or fudge friction
+
 class Env():
     def __init__(
         self,
@@ -166,6 +169,18 @@ class Env():
             puck_mass,
             contact_type=puck_contact_type
         )
+        self.top_body, self.top = add_cylinder(
+            self.plant,
+            'top',
+            top_dims,
+            top_mu_static,
+            top_mu_dynamic,
+            top_mass,
+            color=[0.0, 0.0, 1.0, 1.0],
+            contact_type=puck_contact_type
+        )
+        X_PTop = RigidTransform(RotationMatrix.Identity(), [0, 0, 1e-3/2 + puck_dims[1]/2])
+        self.plant.WeldFrames(self.plant.GetFrameByName('puck_body', self.puck), self.plant.GetFrameByName('top_body', self.top), X_PTop)
 
         # add ee
         self.ee_body, self.ee = add_cylinder(
@@ -292,6 +307,7 @@ if __name__ == '__main__':
     env = Env(meshcat)
     # env.test_reach()
     env.run_push()
+    # env.test_friction()
 
     while True:
         pass
