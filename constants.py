@@ -22,7 +22,7 @@ ee_mu_dynamic = 0.8
 table_x_offset = 0.3
 gravity = 9.80665
 
-press_force_mag = 25.0
+press_force_mag = 50.0
 
 model_mu = (2 * puck_mu_dynamic * table_mu_dynamic) / (puck_mu_dynamic + table_mu_dynamic)
 

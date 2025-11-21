@@ -292,7 +292,7 @@ class Env():
         self.meshcat.SetTransform('target', RigidTransform(np.concatenate([target, [0]])))
 
         # Make controller and make trajectories
-        controller = HFPController(self.plant)
+        controller = HFPController(self.plant, S_force=np.diag([0,0,0,1,1,1]))
         EE_spatial_traj, EE_fz_traj = make_EE_traj(X_WPuck_init.translation()[:2], target)
         EE_pos_source = TrajectorySource(EE_spatial_traj)
         EE_vel_source = TrajectorySource(EE_spatial_traj.derivative(1))

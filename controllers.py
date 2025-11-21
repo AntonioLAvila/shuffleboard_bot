@@ -15,7 +15,8 @@ from constants import (
     model_mu,
     gravity,
     press_force_mag,
-    x_limits
+    x_limits,
+    puck_mass
 )
 import numpy as np
 from numpy.linalg import inv, pinv, norm
@@ -71,7 +72,6 @@ class HFPController(LeafSystem):
         v_meas = state[7:]
         path_p = np.concatenate([path_p, [0]])
         path_pdot = np.concatenate([path_pdot, [0]])
-        F_des = np.concatenate([np.zeros(5), f_z])
 
         # Calc Jacobian
         self.plant.SetPositions(self.plant_context, self.iiwa, q_meas)
@@ -99,10 +99,19 @@ class HFPController(LeafSystem):
         p_WG, R_WG = X_WG.translation(), X_WG.rotation()
         v_WG, w_WG = V_WG.translational(), V_WG.rotational()
 
-        # Calc input force at EE
+        # Calc feed forward force in xy-plane
+        friction_mag = model_mu * (np.abs(f_z) + puck_mass*gravity) # mu * n
+        f_xy_ff = (path_pdot[:2] / norm(path_pdot[:2])) * friction_mag
+
+        # Calc F_desired
+        F_des = np.concatenate([np.zeros(3), f_xy_ff, f_z])
+
+        # Calc positional terms
         f_pv = self.Kp*(path_p - p_WG) + self.Kd*(path_pdot - v_WG)
         tau_pv = -self.Kd_tau*w_WG # this drives rotational position to not move from starting
         F_pv = np.concatenate((tau_pv, f_pv))
+
+        # Calc input force at EE
         F_u = (self.S_pos @ F_pv) + (self.S_force @ F_des) - F_g
         
         # Calc torque with null space terms
