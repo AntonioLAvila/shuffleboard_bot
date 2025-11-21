@@ -45,15 +45,15 @@ class HFPController(LeafSystem):
         # gains
         # generaly set kd = 2*sqrt(kp)
         # TODO tune
-        self.Kp = 100
+        self.Kp = 1000
         self.Kd = 2*np.sqrt(self.Kp)
 
         self.Kp_tau = 10000
         self.Kd_tau = 2*np.sqrt(self.Kp_tau)
 
         # this ones probably fine?
-        self.Kp_null = 100
-        self.Kd_null = 60
+        self.Kp_null = 1000
+        self.Kd_null = 2*np.sqrt(self.Kp_null)
 
         # io
         self.state_input = self.DeclareVectorInputPort('state', 14) # input is q, qdot
@@ -154,7 +154,7 @@ def IK(
     raise RuntimeError('IK failed')
 
 
-def make_EE_traj(p_initial: np.ndarray, p_final: np.ndarray, time=0.8) -> tuple[PiecewisePolynomial, PiecewisePolynomial]:
+def make_EE_traj(p_initial: np.ndarray, p_final: np.ndarray, push_time=0.8) -> tuple[PiecewisePolynomial, PiecewisePolynomial]:
     '''
     Return a trajectory for the end effector in the xy-plane and a force trajectory
     in the z direction.
@@ -170,31 +170,39 @@ def make_EE_traj(p_initial: np.ndarray, p_final: np.ndarray, time=0.8) -> tuple[
     v_release =  (d/length) * np.sqrt(2 * model_mu * gravity * length)
 
     # calc path
-    breaks = [0.0, time]
+    prep_time = 1.0
+    breaks = [
+        0.0,
+        prep_time,
+        prep_time + push_time,
+    ]
     traj = PiecewisePolynomial.CubicWithContinuousSecondDerivatives(
         breaks=breaks,
-        samples=[p_initial.reshape(2,1), p_release.reshape(2,1)],
+        samples=np.stack([p_initial, p_initial, p_release], axis=1),
         sample_dot_at_start=np.zeros((2,1)),
         sample_dot_at_end=v_release.reshape(2,1)
     )
+    force_breaks = [
+        0.0,
+        prep_time,
+        prep_time + push_time,
+        prep_time + push_time + 1.0,
+    ]
     force_traj = PiecewisePolynomial.ZeroOrderHold(
-        breaks=breaks,
-        samples=[np.array([[-press_force_mag]]), np.array([[0.0]])]
+        breaks=force_breaks,
+        samples=np.array([[-press_force_mag, -press_force_mag, 1.0, 1.0]])
     )
 
     return traj, force_traj
 
 
 if __name__ == "__main__":
-    p_initial = np.array([0.4, 0.0])
+    p_initial = np.array([0.38, 0.0])
     p_final = np.array([2.0, 0.2])
     traj, f_traj = make_EE_traj(p_initial, p_final)
 
     T = traj.end_time()
     ts = np.linspace(0.0, T, 200)
-
-    # Evaluate force
-    force = np.array([f_traj.value(t).flatten() for t in ts])
     
     # Evaluate position & velocity
     pos = np.array([traj.value(t).flatten() for t in ts])
@@ -224,9 +232,12 @@ if __name__ == "__main__":
     plt.legend()
 
     # ---- Plot Force vs Time ----
+    Tf = f_traj.end_time()
+    tsf = np.linspace(0.0, Tf, 200)
+    force = np.array([f_traj.value(t).flatten() for t in tsf])
     plt.figure()
-    plt.plot(ts, force[:, 0], label="Fz")
-    plt.plot(ts, np.linalg.norm(force, axis=1), linestyle="--", label="|F|")
+    plt.plot(tsf, force[:, 0], label="Fz")
+    plt.plot(tsf, np.linalg.norm(force, axis=1), linestyle="--", label="|F|")
     plt.title("End Effector Force")
     plt.xlabel("Time (s)")
     plt.ylabel("Force (N)")

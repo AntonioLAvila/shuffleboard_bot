@@ -29,7 +29,8 @@ from pydrake.all import (
     AddFrameTriadIllustration,
     RotationMatrix,
     SpatialVelocity,
-    TrajectorySource
+    TrajectorySource,
+    LogVectorOutput
 )
 from constants import (
     table_dims,
@@ -42,7 +43,6 @@ from constants import (
     iiwa_q0,
     X_WPuck_init,
     X_PuckEE_init,
-    table_x_offset,
     ee_dims,
     ee_mass,
     ee_mu_dynamic,
@@ -50,8 +50,13 @@ from constants import (
     top_mass,
     top_mu_static,
     top_mu_dynamic,
-    top_dims
+    top_dims,
+    x_limits,
+    table_x_offset,
+    gravity,
+    model_mu
 )
+from util import BodyStateReporter
 from controllers import HFPController, IK, make_EE_traj
 
 
@@ -220,6 +225,9 @@ class Env():
                 body=self.puck_body,
                 length=0.1
             )
+            meshcat.SetObject('red_line', Cylinder(0.005, 2), rgba=Rgba(1, 0, 0, 1))
+            R = RotationMatrix.MakeYRotation(np.pi/2) @ RotationMatrix.MakeXRotation(np.pi/2)
+            meshcat.SetTransform('red_line', RigidTransform(R, [x_limits[1], 0, 0]))
 
         # calc starting q given X_PuckEE_init (in constants)
         self.q0 = IK(self.plant, X_WPuck_init@X_PuckEE_init)
@@ -232,9 +240,21 @@ class Env():
 
         diagram_context = diagram.CreateDefaultContext()
         plant_context = self.plant.GetMyMutableContextFromRoot(diagram_context)
+
+        p_initial = X_WPuck_init.translation()[:2]
+        p_final = np.array([2.0, 0.2])
+        self.meshcat.SetObject('target', Sphere(0.01), rgba=Rgba(0,1,0,1))
+        self.meshcat.SetTransform('target', RigidTransform(np.concatenate([p_final, [0]])))
+
+        # calc p_release
+        p_release = np.array([max(p_initial[0], x_limits[1]), p_initial[1]])
+        # calc v_release
+        d = p_final - p_release
+        length = np.linalg.norm(d)
+        v_release =  (d/length) * np.sqrt(2 * model_mu * gravity * length)
         
-        self.plant.SetFreeBodyPose(plant_context, self.puck_body, X_WPuck_init)
-        self.plant.SetFreeBodySpatialVelocity(self.puck_body, SpatialVelocity([0,0,0,1,0,0]), plant_context)
+        self.plant.SetFreeBodyPose(plant_context, self.puck_body, RigidTransform([p_release[0], p_release[1], puck_dims[1]/2+1e-3]))
+        self.plant.SetFreeBodySpatialVelocity(self.puck_body, SpatialVelocity(np.concatenate([[0,0,0], v_release, [0]])), plant_context)
         self.plant.SetPositions(plant_context, self.iiwa, iiwa_q0)
 
         sim = Simulator(diagram, diagram_context)
@@ -267,7 +287,7 @@ class Env():
     
     def run_push(self):
         # set target
-        target = np.array([2, 0.2])
+        target = np.array([2.0, 0.2])
         self.meshcat.SetObject('target', Sphere(0.01), rgba=Rgba(0,1,0,1))
         self.meshcat.SetTransform('target', RigidTransform(np.concatenate([target, [0]])))
 
@@ -291,21 +311,27 @@ class Env():
         self.builder.Connect(EE_fz_source.get_output_port(), controller.force_input)
         self.builder.Connect(controller.output_port, self.plant.get_actuation_input_port(self.iiwa))
 
+        # EE traj log TODO fix this
+        # reporter = BodyStateReporter(self.plant, self.ee_body)
+        # self.builder.AddNamedSystem('logger', reporter)
+        # logger = LogVectorOutput(reporter.ouput_port, self.builder)
+        # logger.set_name('ee_log')
+
         diagram = self.builder.Build()
 
         diagram_context = diagram.CreateDefaultContext()
         plant_context = self.plant.GetMyMutableContextFromRoot(diagram_context)
 
         self.plant.SetFreeBodyPose(plant_context, self.puck_body, X_WPuck_init)
-        self.plant.SetFreeBodySpatialVelocity(self.puck_body, SpatialVelocity([0,0,0,0,0,0]), plant_context)
         self.plant.SetPositions(plant_context, self.iiwa, self.q0)
 
         sim = Simulator(diagram, diagram_context)
         sim.set_target_realtime_rate(1.0)
         meshcat.StartRecording()
-        sim.AdvanceTo(3.0)
+        sim.AdvanceTo(5.0)
         meshcat.StopRecording()
         meshcat.PublishRecording()
+
 
 if __name__ == '__main__':
     meshcat: Meshcat = StartMeshcat()
