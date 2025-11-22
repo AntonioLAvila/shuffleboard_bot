@@ -8,7 +8,10 @@ from pydrake.all import (
     InverseKinematics,
     RotationMatrix,
     Solve,
-    PiecewisePolynomial
+    PiecewisePolynomial,
+    PositionConstraint,
+    KinematicTrajectoryOptimization,
+    SpatialVelocityConstraint
 )
 from constants import (
     iiwa_q0,
@@ -16,7 +19,10 @@ from constants import (
     gravity,
     press_force_mag,
     x_limits,
-    puck_mass
+    puck_mass,
+    X_PuckEE_init,
+    X_WPuck_init,
+    puck_dims
 )
 import numpy as np
 from numpy.linalg import inv, pinv, norm
@@ -203,6 +209,84 @@ def make_EE_traj(p_initial: np.ndarray, p_final: np.ndarray, push_time=0.8) -> t
     )
 
     return traj, force_traj
+
+
+def make_q_traj(plant: MultibodyPlant, p_final: np.ndarray):
+    print(plant.num_positions())
+
+    # calc p_release and v_release
+    p_initial = X_WPuck_init.translation()[:2]
+    p_release = np.array([max(p_initial[0], x_limits[1]), p_initial[1]])
+    d = p_final - p_release
+    length = norm(d)
+    v_release =  (d/length) * np.sqrt(2 * model_mu * gravity * length)
+
+    # things
+    X_start: RigidTransform = X_WPuck_init@X_PuckEE_init
+    z_offset = X_start.translation()[2]
+    ee_frame = plant.GetFrameByName('ee_body')
+    plant_context = plant.CreateDefaultContext()
+    p_release_3d = np.concatenate([p_release, [z_offset]])
+    v_release_3d = np.concatenate([v_release, [0]])
+
+    # trajopt
+    trajopt = KinematicTrajectoryOptimization(14, 15)
+    prog = trajopt.prog()
+    
+    initial_pos_constraint = PositionConstraint(
+        plant=plant,
+        frameA=plant.world_frame(),
+        p_AQ_lower=X_start.translation(),
+        p_AQ_upper=X_start.translation(),
+        frameB=ee_frame,
+        p_BQ=np.zeros(3),
+        plant_context=plant_context
+    )
+    trajopt.AddPathPositionConstraint(initial_pos_constraint, 0)
+
+    final_pos_constraint = PositionConstraint(
+        plant=plant,
+        frameA=plant.world_frame(),
+        p_AQ_lower=p_release_3d,
+        p_AQ_upper=p_release_3d,
+        frameB=ee_frame,
+        p_BQ=np.zeros(3),
+        plant_context=plant_context
+    )
+    trajopt.AddPathPositionConstraint(final_pos_constraint, 1)
+
+    initial_velocity_constraint = SpatialVelocityConstraint(
+        plant=plant,
+        frameA=plant.world_frame(),
+        v_AC_lower=np.zeros(3),
+        v_AC_upper=np.zeros(3),
+        frameB=ee_frame,
+        p_BCo=np.zeros(3),
+        plant_context=plant_context
+    )
+    trajopt.AddVelocityConstraintAtNormalizedTime(initial_velocity_constraint, 0)
+
+    final_velocity_constraint = SpatialVelocityConstraint(
+        plant=plant,
+        frameA=plant.world_frame(),
+        v_AC_lower=v_release_3d,
+        v_AC_upper=v_release_3d,
+        frameB=ee_frame,
+        p_BCo=np.zeros(3),
+        plant_context=plant_context
+    )
+    trajopt.AddVelocityConstraintAtNormalizedTime(final_velocity_constraint, 1)
+
+    q0_var = trajopt.control_points()[:7, 0]
+    qf_var = trajopt.control_points()[:7, -1]
+    prog.AddQuadraticErrorCost(1, iiwa_q0, q0_var)
+    prog.AddQuadraticErrorCost(1, iiwa_q0, qf_var)
+
+    result = Solve(prog)
+    if result.is_success():
+        return trajopt.ReconstructTrajectory(result)
+    raise RuntimeError('trajopt failed')
+
 
 
 if __name__ == "__main__":

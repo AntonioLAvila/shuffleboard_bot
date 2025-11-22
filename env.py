@@ -57,7 +57,7 @@ from constants import (
     model_mu
 )
 from util import BodyStateReporter
-from controllers import HFPController, IK, make_EE_traj
+from controllers import HFPController, IK, make_EE_traj, make_q_traj
 
 
 def add_table(
@@ -273,6 +273,8 @@ class Env():
         diagram_context = diagram.CreateDefaultContext()
         plant_context = self.plant.GetMyMutableContextFromRoot(diagram_context)
 
+        traj = make_q_traj(self.plant, np.array([2.0, 0.2]))
+
         X_WP = RigidTransform(RotationMatrix.Identity(), [0.38, 0.0, puck_dims[1]/2+1e-3]) # change this
         q0 = IK(self.plant, X_WP@X_PuckEE_init)
         self.plant.SetPositions(plant_context, self.iiwa, q0)
@@ -336,9 +338,9 @@ class Env():
 if __name__ == '__main__':
     meshcat: Meshcat = StartMeshcat()
     env = Env(meshcat)
-    # env.test_reach()
+    env.test_reach()
     # env.test_friction()
-    env.run_push()
+    # env.run_push()
 
     while True:
         pass
