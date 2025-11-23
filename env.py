@@ -56,8 +56,9 @@ from constants import (
     gravity,
     model_mu
 )
-from util import BodyStateReporter
+from util import BodyStateExtractor, plot_ee_traj
 from controllers import HFPController, IK, make_EE_traj
+import matplotlib.pyplot as plt
 
 
 def add_table(
@@ -312,10 +313,12 @@ class Env():
         self.builder.Connect(controller.output_port, self.plant.get_actuation_input_port(self.iiwa))
 
         # EE traj log TODO fix this
-        # reporter = BodyStateReporter(self.plant, self.ee_body)
-        # self.builder.AddNamedSystem('logger', reporter)
-        # logger = LogVectorOutput(reporter.ouput_port, self.builder)
-        # logger.set_name('ee_log')
+        extractor = BodyStateExtractor(self.plant, self.ee_body)
+        self.builder.AddNamedSystem('extractor', extractor)
+        self.builder.Connect(self.plant.get_body_poses_output_port(), extractor.pose_input)
+        self.builder.Connect(self.plant.get_body_spatial_velocities_output_port(), extractor.velocity_input)
+        logger = LogVectorOutput(extractor.output, self.builder)
+        logger.set_name('ee_log')
 
         diagram = self.builder.Build()
 
@@ -331,6 +334,37 @@ class Env():
         sim.AdvanceTo(5.0)
         meshcat.StopRecording()
         meshcat.PublishRecording()
+
+        # TODO trim these to the same times and compare agains the expected
+        ee_log = logger.FindLog(diagram_context)
+        times = ee_log.sample_times()
+        data = ee_log.data()  # shape (N, samples)
+        x  = data[0, :]
+        y  = data[1, :]
+        vx = data[3, :]
+        vy = data[4, :]
+
+        # --------------------  Plot EE XY trajectory  --------------------
+        plt.figure()
+        plt.plot(x, y)
+        plt.xlabel("x (m)")
+        plt.ylabel("y (m)")
+        plt.title("End Effector XY Trajectory")
+        plt.axis("equal")
+        plt.grid(True)
+
+        # --------------------  Plot XY velocities  --------------------
+        plt.figure()
+        plt.plot(times, vx, label="vx")
+        plt.plot(times, vy, label="vy")
+        plt.xlabel("time (s)")
+        plt.ylabel("velocity (m/s)")
+        plt.title("End Effector XY Velocities")
+        plt.legend()
+        plt.grid(True)
+
+        plot_ee_traj(EE_spatial_traj)
+
 
 
 if __name__ == '__main__':
