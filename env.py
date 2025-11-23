@@ -344,8 +344,26 @@ class Env():
         vx = data[3, :]
         vy = data[4, :]
 
+        T = EE_spatial_traj.end_time()
+        ts = np.linspace(0.0, T, 200)
+        
+        # Evaluate position & velocity
+        pos = np.array([EE_spatial_traj.value(t).flatten() for t in ts])
+        vel = np.array([EE_spatial_traj.derivative(1).value(t).flatten() for t in ts])
+
         # --------------------  Plot EE XY trajectory  --------------------
         plt.figure()
+        plt.plot(pos[:, 0], pos[:, 1], label="EE path")
+        # plt.scatter(p_initial[0], p_initial[1], color="green", label="Start")
+        plt.scatter(pos[-1, 0], pos[-1, 1], color="red", label="Release")
+        plt.title("End Effector XY Trajectory")
+        plt.xlabel("X (m)")
+        plt.ylabel("Y (m)")
+        plt.axis("equal")
+        plt.grid(True)
+        plt.legend()
+
+        # plt.figure()
         plt.plot(x, y)
         plt.xlabel("x (m)")
         plt.ylabel("y (m)")
@@ -355,6 +373,16 @@ class Env():
 
         # --------------------  Plot XY velocities  --------------------
         plt.figure()
+        plt.plot(ts, vel[:, 0], label="vx")
+        plt.plot(ts, vel[:, 1], label="vy")
+        plt.plot(ts, np.linalg.norm(vel, axis=1), linestyle="--", label="|v|")
+        plt.title("End Effector Velocity")
+        plt.xlabel("Time (s)")
+        plt.ylabel("Velocity (m/s)")
+        plt.grid(True)
+        plt.legend()
+
+        # plt.figure()
         plt.plot(times, vx, label="vx")
         plt.plot(times, vy, label="vy")
         plt.xlabel("time (s)")
@@ -363,7 +391,9 @@ class Env():
         plt.legend()
         plt.grid(True)
 
-        plot_ee_traj(EE_spatial_traj)
+        plt.show()
+
+        # plot_ee_traj(EE_spatial_traj)
 
 
 
