@@ -227,7 +227,7 @@ class Env():
             )
             meshcat.SetObject('red_line', Cylinder(0.005, 2), rgba=Rgba(1, 0, 0, 1))
             R = RotationMatrix.MakeYRotation(np.pi/2) @ RotationMatrix.MakeXRotation(np.pi/2)
-            meshcat.SetTransform('red_line', RigidTransform(R, [x_limits[1], 0, 0]))
+            meshcat.SetTransform('red_line', RigidTransform(R, [1.0 + table_x_offset, 0, 0]))
 
         # calc starting q given X_PuckEE_init (in constants)
         self.q0 = IK(self.plant, X_WPuck_init@X_PuckEE_init)
