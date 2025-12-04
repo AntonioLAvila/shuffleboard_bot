@@ -22,7 +22,7 @@ ee_mu_dynamic = 0.8
 table_x_offset = 0.3
 gravity = 9.80665
 
-press_force_mag = 50.0
+press_force_mag = 80.0
 
 model_mu = (2 * puck_mu_dynamic * table_mu_dynamic) / (puck_mu_dynamic + table_mu_dynamic)
 
@@ -34,4 +34,4 @@ X_PuckEE_init = RigidTransform(
     [0, 0, puck_dims[1]/2 + top_dims[1] + ee_dims[1]/2 + 2e-3]
 )
 
-x_limits = (0.38, 0.7) # meters
+x_limits = (0.38, 0.5) # meters

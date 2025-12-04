@@ -228,7 +228,7 @@ class Env():
             )
             meshcat.SetObject('red_line', Cylinder(0.005, 2), rgba=Rgba(1, 0, 0, 1))
             R = RotationMatrix.MakeYRotation(np.pi/2) @ RotationMatrix.MakeXRotation(np.pi/2)
-            meshcat.SetTransform('red_line', RigidTransform(R, [x_limits[1], 0, 0]))
+            meshcat.SetTransform('red_line', RigidTransform(R, [x_limits[1] + table_x_offset, 0, 0]))
 
         # calc starting q given X_PuckEE_init (in constants)
         self.q0 = IK(self.plant, X_WPuck_init@X_PuckEE_init)
@@ -288,13 +288,13 @@ class Env():
     
     def run_push(self):
         # set target
-        target = np.array([2.0, 0.2])
+        target = np.array([3.0, 0.2])
         self.meshcat.SetObject('target', Sphere(0.01), rgba=Rgba(0,1,0,1))
         self.meshcat.SetTransform('target', RigidTransform(np.concatenate([target, [0]])))
 
         # Make controller and make trajectories
         controller = HFPController(self.plant, S_force=np.diag([0,0,0,1,1,1]))
-        EE_spatial_traj, EE_fz_traj = make_EE_traj(X_WPuck_init.translation()[:2], target)
+        EE_spatial_traj, EE_fz_traj = make_EE_traj(X_WPuck_init.translation()[:2], target, push_time=0.4)
         EE_pos_source = TrajectorySource(EE_spatial_traj)
         EE_vel_source = TrajectorySource(EE_spatial_traj.derivative(1))
         EE_fz_source = TrajectorySource(EE_fz_traj)
