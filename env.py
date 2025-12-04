@@ -72,7 +72,7 @@ def add_table(
     model = plant.AddModelInstance('table_model')
     body = plant.AddRigidBody('table_body', model)
     shape = Box(*dims)
-    pose = RigidTransform([dims[0]/2.0 + table_x_offset, 0, -dims[2]/2.0])
+    pose = RigidTransform([dims[0]/2.0 + table_x_offset, 0.2, -dims[2]/2.0])
 
     contact_properties = ProximityProperties()
     contact_properties.AddProperty('material', 'coulomb_friction', CoulombFriction(mu_static, mu_dynamic))
@@ -94,7 +94,6 @@ def add_table(
     plant.WeldFrames(plant.world_frame(), body.body_frame())
 
     return body, model
-
 
 def add_cylinder(
     plant: MultibodyPlant,
@@ -123,7 +122,7 @@ def add_cylinder(
         AddCompliantHydroelasticProperties(0.05, hydroelastic_modulus, contact_properties)
     else:
         raise RuntimeError(f'Contact type {contact_type} not supported')
-
+    
     plant.RegisterVisualGeometry(body, RigidTransform(), shape, f'{name}_visual', color)
     plant.RegisterCollisionGeometry(
         body,
@@ -160,7 +159,7 @@ class Env():
         # add and configure iiwa
         parser = Parser(self.plant, self.scene_graph)
         self.iiwa = parser.AddModelsFromUrl('package://drake_models/iiwa_description/sdf/iiwa7_with_box_collision.sdf')[0]
-        self.plant.WeldFrames(self.plant.world_frame(), self.plant.GetFrameByName('iiwa_link_0'))
+        self.plant.WeldFrames(self.plant.world_frame(), self.plant.GetFrameByName('iiwa_link_0'), RigidTransform([0.7, -0.5, 0.0]) )
 
         # add table surface
         _, self.table = add_table(self.plant, table_dims, table_mu_static, table_mu_dynamic, contact_type=table_contact_tyype)
@@ -253,7 +252,6 @@ class Env():
         d = p_final - p_release
         length = np.linalg.norm(d)
         v_release =  (d/length) * np.sqrt(2 * model_mu * gravity * length)
-        
         self.plant.SetFreeBodyPose(plant_context, self.puck_body, RigidTransform([p_release[0], p_release[1], puck_dims[1]/2+1e-3]))
         self.plant.SetFreeBodySpatialVelocity(self.puck_body, SpatialVelocity(np.concatenate([[0,0,0], v_release, [0]])), plant_context)
         self.plant.SetPositions(plant_context, self.iiwa, iiwa_q0)
@@ -373,9 +371,9 @@ class Env():
 
         # --------------------  Plot XY velocities  --------------------
         plt.figure()
-        plt.plot(ts, vel[:, 0], label="vx")
-        plt.plot(ts, vel[:, 1], label="vy")
-        plt.plot(ts, np.linalg.norm(vel, axis=1), linestyle="--", label="|v|")
+        plt.plot(ts, vel[:, 0], label="wantedvx")
+        plt.plot(ts, vel[:, 1], label="wantedvy")
+        plt.plot(ts, np.linalg.norm(vel, axis=1), linestyle="--", label="|wantedv|")
         plt.title("End Effector Velocity")
         plt.xlabel("Time (s)")
         plt.ylabel("Velocity (m/s)")
@@ -385,6 +383,7 @@ class Env():
         # plt.figure()
         plt.plot(times, vx, label="vx")
         plt.plot(times, vy, label="vy")
+        plt.plot(times, np.sqrt(vx**2 + vy**2), label="|v|")
         plt.xlabel("time (s)")
         plt.ylabel("velocity (m/s)")
         plt.title("End Effector XY Velocities")

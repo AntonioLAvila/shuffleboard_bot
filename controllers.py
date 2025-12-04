@@ -46,7 +46,7 @@ class HFPController(LeafSystem):
         # gains
         # generaly set kd = 2*sqrt(kp)
         # TODO tune
-        self.Kp = 1000
+        self.Kp = 500
         self.Kd = 2*np.sqrt(self.Kp)
 
         self.Kp_tau = 10000
@@ -178,6 +178,7 @@ def make_EE_traj(p_initial: np.ndarray, p_final: np.ndarray, push_time=0.8) -> t
     length = norm(d)
     v_release =  (d/length) * np.sqrt(2 * model_mu * gravity * length)
 
+
     # calc path
     prep_time = 1.0
     breaks = [
@@ -212,11 +213,10 @@ if __name__ == "__main__":
 
     T = traj.end_time()
     ts = np.linspace(0.0, T, 200)
-    
+
     # Evaluate position & velocity
     pos = np.array([traj.value(t).flatten() for t in ts])
     vel = np.array([traj.derivative(1).value(t).flatten() for t in ts])
-
     # ---- Plot XY Trajectory ----
     plt.figure()
     plt.plot(pos[:, 0], pos[:, 1], label="EE path")
