@@ -331,7 +331,7 @@ class Env():
         sim = Simulator(diagram, diagram_context)
         sim.set_target_realtime_rate(1.0)
         meshcat.StartRecording()
-        sim.AdvanceTo(5.0)
+        sim.AdvanceTo(7.0)
         meshcat.StopRecording()
         meshcat.PublishRecording()
 
