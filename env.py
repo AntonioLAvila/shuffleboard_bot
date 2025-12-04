@@ -286,7 +286,8 @@ class Env():
     
     def run_push(self):
         # set target
-        target = np.array([2.0, 0.2])
+        # target = np.array([2.0, 0.2])
+        target = np.array([3.0, 0.0])
         self.meshcat.SetObject('target', Sphere(0.01), rgba=Rgba(0,1,0,1))
         self.meshcat.SetTransform('target', RigidTransform(np.concatenate([target, [0]])))
 
@@ -330,7 +331,7 @@ class Env():
         sim = Simulator(diagram, diagram_context)
         sim.set_target_realtime_rate(1.0)
         meshcat.StartRecording()
-        sim.AdvanceTo(5.0)
+        sim.AdvanceTo(7.0)
         meshcat.StopRecording()
         meshcat.PublishRecording()
 
@@ -354,7 +355,7 @@ class Env():
         plt.figure()
         plt.plot(pos[:, 0], pos[:, 1], label="EE path")
         # plt.scatter(p_initial[0], p_initial[1], color="green", label="Start")
-        plt.scatter(pos[-1, 0], pos[-1, 1], color="red", label="Release")
+        # plt.scatter(pos[-1, 0], pos[-1, 1], color="red", label="Release")
         plt.title("End Effector XY Trajectory")
         plt.xlabel("X (m)")
         plt.ylabel("Y (m)")

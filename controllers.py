@@ -46,7 +46,7 @@ class HFPController(LeafSystem):
         # gains
         # generaly set kd = 2*sqrt(kp)
         # TODO tune
-        self.Kp = 5000
+        self.Kp = 10000
         self.Kd = 2*np.sqrt(self.Kp)
 
         self.Kp_tau = 10000
@@ -102,6 +102,8 @@ class HFPController(LeafSystem):
         # Calc feed forward force in xy-plane
         friction_mag = model_mu * (np.abs(f_z) + puck_mass*gravity) # mu * n
         f_xy_ff = (path_pdot[:2] / norm(path_pdot[:2])) * friction_mag
+        if np.isnan(f_xy_ff).any(): # check division by 0
+            f_xy_ff = np.array([0.0, 0.0])
 
         # Calc F_desired
         F_des = np.concatenate([np.zeros(3), f_xy_ff, f_z])
@@ -178,29 +180,25 @@ def make_EE_traj(p_initial: np.ndarray, p_final: np.ndarray, push_time=0.8) -> t
     length = norm(d)
     v_release =  (d/length) * np.sqrt(2 * model_mu * gravity * length)
 
-
     # calc path
     prep_time = 1.0
+    end_time = 1.0
     breaks = [
         0.0,
         prep_time,
         prep_time + push_time,
+        prep_time + push_time + end_time,
     ]
-    traj = PiecewisePolynomial.CubicWithContinuousSecondDerivatives(
+
+    traj = PiecewisePolynomial.CubicHermite(
         breaks=breaks,
-        samples=np.stack([p_initial, p_initial, p_release], axis=1),
-        sample_dot_at_start=np.zeros((2,1)),
-        sample_dot_at_end=v_release.reshape(2,1)
+        samples=np.stack([p_initial, p_initial, p_release, 1.2*p_release], axis=1),
+        samples_dot=np.stack([[0,0], [0,0], v_release, [0,0]], axis=1)
     )
-    force_breaks = [
-        0.0,
-        prep_time,
-        prep_time + push_time,
-        prep_time + push_time + 1.0,
-    ]
+
     force_traj = PiecewisePolynomial.ZeroOrderHold(
-        breaks=force_breaks,
-        samples=np.array([[-press_force_mag, -press_force_mag, 1.0, 1.0]])
+        breaks=breaks,
+        samples=np.array([[-press_force_mag, -press_force_mag, 10.0, 10.0]])
     )
 
     return traj, force_traj
@@ -208,7 +206,7 @@ def make_EE_traj(p_initial: np.ndarray, p_final: np.ndarray, push_time=0.8) -> t
 
 if __name__ == "__main__":
     p_initial = np.array([0.38, 0.0])
-    p_final = np.array([2.0, 0.2])
+    p_final = np.array([3.0, 0.4])
     traj, f_traj = make_EE_traj(p_initial, p_final)
 
     T = traj.end_time()

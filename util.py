@@ -41,7 +41,7 @@ def plot_ee_traj(traj):
     plt.figure()
     plt.plot(pos[:, 0], pos[:, 1], label="EE path")
     # plt.scatter(p_initial[0], p_initial[1], color="green", label="Start")
-    plt.scatter(pos[-1, 0], pos[-1, 1], color="red", label="Release")
+    # plt.scatter(pos[-1, 0], pos[-1, 1], color="red", label="Release")
     plt.title("End Effector XY Trajectory")
     plt.xlabel("X (m)")
     plt.ylabel("Y (m)")
