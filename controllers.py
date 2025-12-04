@@ -46,7 +46,7 @@ class HFPController(LeafSystem):
         # gains
         # generaly set kd = 2*sqrt(kp)
         # TODO tune
-        self.Kp = 500
+        self.Kp = 5000
         self.Kd = 2*np.sqrt(self.Kp)
 
         self.Kp_tau = 10000

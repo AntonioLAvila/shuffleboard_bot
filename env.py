@@ -159,7 +159,7 @@ class Env():
         # add and configure iiwa
         parser = Parser(self.plant, self.scene_graph)
         self.iiwa = parser.AddModelsFromUrl('package://drake_models/iiwa_description/sdf/iiwa7_with_box_collision.sdf')[0]
-        self.plant.WeldFrames(self.plant.world_frame(), self.plant.GetFrameByName('iiwa_link_0'), RigidTransform([0.7, -0.5, 0.0]) )
+        self.plant.WeldFrames(self.plant.world_frame(), self.plant.GetFrameByName('iiwa_link_0'), RigidTransform([0.7, -0.3, 0.0]) )
 
         # add table surface
         _, self.table = add_table(self.plant, table_dims, table_mu_static, table_mu_dynamic, contact_type=table_contact_tyype)
@@ -292,6 +292,7 @@ class Env():
 
         # Make controller and make trajectories
         controller = HFPController(self.plant, S_force=np.diag([0,0,0,1,1,1]))
+        # controller = HFPController(self.plant)
         EE_spatial_traj, EE_fz_traj = make_EE_traj(X_WPuck_init.translation()[:2], target)
         EE_pos_source = TrajectorySource(EE_spatial_traj)
         EE_vel_source = TrajectorySource(EE_spatial_traj.derivative(1))

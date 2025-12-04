@@ -34,4 +34,4 @@ X_PuckEE_init = RigidTransform(
     [0, 0, puck_dims[1]/2 + top_dims[1] + ee_dims[1]/2 + 2e-3]
 )
 
-x_limits = (0.2, 0.75) # meters
+x_limits = (0.2, 1.0) # meters
