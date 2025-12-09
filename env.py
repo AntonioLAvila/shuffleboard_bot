@@ -143,7 +143,7 @@ class Env():
         table_contact_tyype='rigid',
         puck_contact_type='compliant',
         ee_contact_type='rigid',
-        debug_visualize=True
+        debug_visualize=False
     ):  
         self.meshcat = meshcat
         self.builder = DiagramBuilder()
@@ -242,7 +242,7 @@ class Env():
         plant_context = self.plant.GetMyMutableContextFromRoot(diagram_context)
 
         p_initial = X_WPuck_init.translation()[:2]
-        p_final = np.array([2.0, 0.2])
+        p_final = np.array([3.4, 0.2])
         self.meshcat.SetObject('target', Sphere(0.01), rgba=Rgba(0,1,0,1))
         self.meshcat.SetTransform('target', RigidTransform(np.concatenate([p_final, [0]])))
 
@@ -252,16 +252,31 @@ class Env():
         d = p_final - p_release
         length = np.linalg.norm(d)
         v_release =  (d/length) * np.sqrt(2 * model_mu * gravity * length)
-        self.plant.SetFreeBodyPose(plant_context, self.puck_body, RigidTransform([p_release[0], p_release[1], puck_dims[1]/2+1e-3]))
+        roll = np.random.uniform(0,1.0)
+        pitch = np.random.uniform(0,1.0)
+        yaw = np.random.uniform(0,1.0)
+        R = (RotationMatrix.MakeXRotation(roll).multiply(RotationMatrix.MakeYRotation(pitch)).multiply(RotationMatrix.MakeZRotation(yaw)))
+        self.plant.SetFreeBodyPose(plant_context, self.puck_body, RigidTransform(R,[p_release[0], p_release[1], puck_dims[1]/2+1e-3+2.0]))
         self.plant.SetFreeBodySpatialVelocity(self.puck_body, SpatialVelocity(np.concatenate([[0,0,0], v_release, [0]])), plant_context)
         self.plant.SetPositions(plant_context, self.iiwa, iiwa_q0)
 
         sim = Simulator(diagram, diagram_context)
         sim.set_target_realtime_rate(1.0)
         meshcat.StartRecording()
-        sim.AdvanceTo(5.0)
+        sim.AdvanceTo(10.0)
         meshcat.StopRecording()
         meshcat.PublishRecording()
+
+
+        # Extract pose of object named "box"
+        body = self.plant.GetBodyByName("puck_body")
+        X_WB = self.plant.EvalBodyPoseInWorld(plant_context, body)
+
+        pos = X_WB.translation()
+
+        print("Distance Away: ", ((pos[0]-p_final[0])**2+(pos[1]-p_final[1])**2)**(0.5))
+        print("Location: ", pos[0:2])
+        return (((pos[0]-p_final[0])**2+(pos[1]-p_final[1])**2)**(0.5), pos[0:2]-p_final)
     
     def test_reach(self):
         '''
@@ -286,13 +301,30 @@ class Env():
     
     def run_push(self):
         # set target
-        target = np.array([2.0, 0.2])
+        p_final = np.array([2.0, 0.2])
         self.meshcat.SetObject('target', Sphere(0.01), rgba=Rgba(0,1,0,1))
-        self.meshcat.SetTransform('target', RigidTransform(np.concatenate([target, [0]])))
+        self.meshcat.SetTransform('target', RigidTransform(np.concatenate([p_final, [0]])))
+        radius = 0.1               # circle radius around the target
+        num_points = 36            # number of spheres around circle
+        sphere_radius = 0.01       # radius of each red sphere
+        for i in range(num_points):
+            angle = 2 * np.pi * i / num_points
+
+            # compute position on the circle
+            x = p_final[0] + radius * np.cos(angle)
+            y = p_final[1] + radius * np.sin(angle)
+            z = 0.0
+
+            # unique Meshcat name for each sphere
+            name = f"circle/sphere_{i}"
+
+            # add sphere
+            self.meshcat.SetObject(name, Sphere(sphere_radius), rgba=Rgba(1, 0, 0, 1))
+            self.meshcat.SetTransform(name, RigidTransform([x, y, z]))
 
         # Make controller and make trajectories
         controller = HFPController(self.plant, S_force=np.diag([0,0,0,1,1,1]))
-        EE_spatial_traj, EE_fz_traj = make_EE_traj(X_WPuck_init.translation()[:2], target)
+        EE_spatial_traj, EE_fz_traj = make_EE_traj(X_WPuck_init.translation()[:2], p_final)
         EE_pos_source = TrajectorySource(EE_spatial_traj)
         EE_vel_source = TrajectorySource(EE_spatial_traj.derivative(1))
         EE_fz_source = TrajectorySource(EE_fz_traj)
@@ -329,68 +361,78 @@ class Env():
         sim = Simulator(diagram, diagram_context)
         sim.set_target_realtime_rate(1.0)
         meshcat.StartRecording()
-        sim.AdvanceTo(5.0)
+        sim.AdvanceTo(10)
         meshcat.StopRecording()
         meshcat.PublishRecording()
 
+        # Extract pose of object named "box"
+        body = self.plant.GetBodyByName("puck_body")
+        X_WB = self.plant.EvalBodyPoseInWorld(plant_context, body)
+
+        pos = X_WB.translation()
+
+        print("Distance Away: ", ((pos[0]-p_final[0])**2+(pos[1]-p_final[1])**2)**(0.5))
+        print("Location: ", pos[0:2])
+        return (((pos[0]-p_final[0])**2+(pos[1]-p_final[1])**2)**(0.5), pos[0:2]-p_final)
+
         # TODO trim these to the same times and compare agains the expected
-        ee_log = logger.FindLog(diagram_context)
-        times = ee_log.sample_times()
-        data = ee_log.data()  # shape (N, samples)
-        x  = data[0, :]
-        y  = data[1, :]
-        vx = data[3, :]
-        vy = data[4, :]
+        # ee_log = logger.FindLog(diagram_context)
+        # times = ee_log.sample_times()
+        # data = ee_log.data()  # shape (N, samples)
+        # x  = data[0, :]
+        # y  = data[1, :]
+        # vx = data[3, :]
+        # vy = data[4, :]
 
-        T = EE_spatial_traj.end_time()
-        ts = np.linspace(0.0, T, 200)
+        # T = EE_spatial_traj.end_time()
+        # ts = np.linspace(0.0, T, 200)
         
-        # Evaluate position & velocity
-        pos = np.array([EE_spatial_traj.value(t).flatten() for t in ts])
-        vel = np.array([EE_spatial_traj.derivative(1).value(t).flatten() for t in ts])
+        # # Evaluate position & velocity
+        # pos = np.array([EE_spatial_traj.value(t).flatten() for t in ts])
+        # vel = np.array([EE_spatial_traj.derivative(1).value(t).flatten() for t in ts])
 
-        # --------------------  Plot EE XY trajectory  --------------------
-        plt.figure()
-        plt.plot(pos[:, 0], pos[:, 1], label="EE path")
-        # plt.scatter(p_initial[0], p_initial[1], color="green", label="Start")
-        plt.scatter(pos[-1, 0], pos[-1, 1], color="red", label="Release")
-        plt.title("End Effector XY Trajectory")
-        plt.xlabel("X (m)")
-        plt.ylabel("Y (m)")
-        plt.axis("equal")
-        plt.grid(True)
-        plt.legend()
-
+        # # --------------------  Plot EE XY trajectory  --------------------
         # plt.figure()
-        plt.plot(x, y)
-        plt.xlabel("x (m)")
-        plt.ylabel("y (m)")
-        plt.title("End Effector XY Trajectory")
-        plt.axis("equal")
-        plt.grid(True)
+        # plt.plot(pos[:, 0], pos[:, 1], label="EE path")
+        # # plt.scatter(p_initial[0], p_initial[1], color="green", label="Start")
+        # plt.scatter(pos[-1, 0], pos[-1, 1], color="red", label="Release")
+        # plt.title("End Effector XY Trajectory")
+        # plt.xlabel("X (m)")
+        # plt.ylabel("Y (m)")
+        # plt.axis("equal")
+        # plt.grid(True)
+        # plt.legend()
 
-        # --------------------  Plot XY velocities  --------------------
-        plt.figure()
-        plt.plot(ts, vel[:, 0], label="wantedvx")
-        plt.plot(ts, vel[:, 1], label="wantedvy")
-        plt.plot(ts, np.linalg.norm(vel, axis=1), linestyle="--", label="|wantedv|")
-        plt.title("End Effector Velocity")
-        plt.xlabel("Time (s)")
-        plt.ylabel("Velocity (m/s)")
-        plt.grid(True)
-        plt.legend()
+        # # plt.figure()
+        # plt.plot(x, y)
+        # plt.xlabel("x (m)")
+        # plt.ylabel("y (m)")
+        # plt.title("End Effector XY Trajectory")
+        # plt.axis("equal")
+        # plt.grid(True)
 
+        # # --------------------  Plot XY velocities  --------------------
         # plt.figure()
-        plt.plot(times, vx, label="vx")
-        plt.plot(times, vy, label="vy")
-        plt.plot(times, np.sqrt(vx**2 + vy**2), label="|v|")
-        plt.xlabel("time (s)")
-        plt.ylabel("velocity (m/s)")
-        plt.title("End Effector XY Velocities")
-        plt.legend()
-        plt.grid(True)
+        # plt.plot(ts, vel[:, 0], label="wantedvx")
+        # plt.plot(ts, vel[:, 1], label="wantedvy")
+        # plt.plot(ts, np.linalg.norm(vel, axis=1), linestyle="--", label="|wantedv|")
+        # plt.title("End Effector Velocity")
+        # plt.xlabel("Time (s)")
+        # plt.ylabel("Velocity (m/s)")
+        # plt.grid(True)
+        # plt.legend()
 
-        plt.show()
+        # # plt.figure()
+        # plt.plot(times, vx, label="vx")
+        # plt.plot(times, vy, label="vy")
+        # plt.plot(times, np.sqrt(vx**2 + vy**2), label="|v|")
+        # plt.xlabel("time (s)")
+        # plt.ylabel("velocity (m/s)")
+        # plt.title("End Effector XY Velocities")
+        # plt.legend()
+        # plt.grid(True)
+
+        # plt.show()
 
         # plot_ee_traj(EE_spatial_traj)
 
@@ -398,10 +440,45 @@ class Env():
 
 if __name__ == '__main__':
     meshcat: Meshcat = StartMeshcat()
-    env = Env(meshcat)
+    # env = Env(meshcat)
     # env.test_reach()
-    # env.test_friction()
-    env.run_push()
+    data = []
+    for i in range(100):
+        env = Env(meshcat)
+        data.append(env.run_push())
+
+    # unpack data
+    distances = [d[0] for d in data]
+
+    plt.figure()
+    plt.plot(distances, marker='o')
+    plt.xlabel("Trial")
+    plt.ylim(0.0, 3.0) 
+    plt.ylabel("Distance from Target (m)")
+    plt.title("Distance vs Trial")
+    plt.grid(True)
+    plt.show()
+
+    # extract x/y offsets
+    xs = [d[1][0] for d in data]    # x-error relative to target
+    ys = [d[1][1] for d in data]    # y-error relative to target
+
+    plt.figure()
+    plt.scatter(xs, ys)
+
+    # draw the target at (0,0)
+    plt.scatter([0], [0], marker='x', s=120)
+
+    plt.axhline(0, color='black', linewidth=0.5)
+    plt.axvline(0, color='black', linewidth=0.5)
+    plt.xlim(-1.5, 2.75)   # min_x, max_x
+    plt.ylim(-2.0, 2.0) 
+    plt.xlabel("X offset (m)")
+    plt.ylabel("Y offset (m)")
+    plt.title("Spray Chart of Landing Positions")
+    plt.grid(True)
+    plt.gca().set_aspect('equal', adjustable='box')  # equal axes so circles look correct
+    plt.show()
 
     while True:
         pass
